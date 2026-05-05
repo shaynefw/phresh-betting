@@ -1,0 +1,159 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { createClient } from "@/lib/supabase/client";
+import type { CapperBetEntry, CapperDayEntry } from "@/lib/types";
+import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
+import { Trash2, Plus } from "lucide-react";
+
+interface Props {
+  day: CapperDayEntry;
+  bets: CapperBetEntry[];
+  capperId: string;
+  systemId: string;
+}
+
+export default function BetEntryEditor({ day, bets, capperId, systemId }: Props) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [wager, setWager] = useState("");
+  const [odds, setOdds] = useState("");
+  const [result, setResult] = useState<"win" | "loss" | "void">("win");
+  const [pnl, setPnl] = useState("");
+  const [notes, setNotes] = useState("");
+
+  async function addBet(e: React.FormEvent) {
+    e.preventDefault();
+    const supabase = createClient();
+    let amount_pnl = pnl === "" ? null : Number(pnl);
+    if (amount_pnl == null && odds && wager) {
+      // auto-compute pnl from American odds
+      const o = Number(odds);
+      const w = Number(wager);
+      if (result === "win") {
+        amount_pnl = o > 0 ? (w * o) / 100 : (w * 100) / Math.abs(o);
+      } else if (result === "loss") {
+        amount_pnl = -w;
+      } else {
+        amount_pnl = 0;
+      }
+    }
+    await supabase.from("capper_bet_entries").insert({
+      capper_day_entry_id: day.id,
+      capper_id: capperId,
+      system_id: systemId,
+      date: day.date,
+      wager_amount: Number(wager || 0),
+      odds: odds ? Number(odds) : null,
+      bet_result: result,
+      amount_pnl: amount_pnl ?? 0,
+      notes: notes || null,
+    });
+    setWager(""); setOdds(""); setPnl(""); setNotes(""); setResult("win");
+    start(() => router.refresh());
+  }
+
+  async function delBet(id: string) {
+    const supabase = createClient();
+    await supabase.from("capper_bet_entries").delete().eq("id", id);
+    start(() => router.refresh());
+  }
+
+  return (
+    <div className="panel p-4">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <div className="kpi-label">Bet-Level — {day.date}</div>
+          <div className="text-xs text-ink-dim">
+            Wager: {fmtMoney(day.wager_total)} ·{" "}
+            <span className={pctClass(day.daily_amount_pnl)}>
+              {fmtMoney(day.daily_amount_pnl, { sign: true })}
+            </span>{" "}
+            · <span className={pctClass(day.daily_units_pnl)}>{fmtUnits(day.daily_units_pnl)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="table-wrap mb-3">
+        <table className="tbl font-mono">
+          <thead>
+            <tr>
+              <th className="text-right">Wager</th>
+              <th className="text-right">Odds</th>
+              <th>Result</th>
+              <th className="text-right">$ PnL</th>
+              <th>Notes</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {bets.length === 0 && (
+              <tr><td colSpan={6} className="text-center text-ink-dim py-3">No bets logged.</td></tr>
+            )}
+            {bets.map((b) => (
+              <tr key={b.id}>
+                <td className="text-right">{fmtMoney(b.wager_amount)}</td>
+                <td className="text-right">{b.odds ?? "—"}</td>
+                <td>
+                  <span className={
+                    b.bet_result === "win" ? "pill-good" :
+                    b.bet_result === "loss" ? "pill-bad" : "pill-mute"
+                  }>
+                    {b.bet_result}
+                  </span>
+                </td>
+                <td className={`text-right ${pctClass(b.amount_pnl)}`}>
+                  {fmtMoney(b.amount_pnl, { sign: true })}
+                </td>
+                <td className="text-ink-dim">{b.notes ?? ""}</td>
+                <td className="text-right">
+                  <button
+                    type="button"
+                    className="btn-danger text-xs"
+                    onClick={() => delBet(b.id)}
+                    disabled={pending}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <form onSubmit={addBet} className="grid md:grid-cols-6 gap-2 items-end">
+        <div>
+          <label className="label">Wager</label>
+          <input className="input" type="number" step="0.01" required value={wager} onChange={(e) => setWager(e.target.value)} />
+        </div>
+        <div>
+          <label className="label">Odds (American)</label>
+          <input className="input" type="number" step="1" value={odds} onChange={(e) => setOdds(e.target.value)} placeholder="-110" />
+        </div>
+        <div>
+          <label className="label">Result</label>
+          <select className="input" value={result} onChange={(e) => setResult(e.target.value as never)}>
+            <option value="win">Win</option>
+            <option value="loss">Loss</option>
+            <option value="void">Void</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">$ PnL (override)</label>
+          <input className="input" type="number" step="0.01" value={pnl} onChange={(e) => setPnl(e.target.value)} placeholder="auto" />
+        </div>
+        <div className="md:col-span-2">
+          <label className="label">Notes</label>
+          <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
+        </div>
+        <div className="md:col-span-6">
+          <button className="btn-primary" disabled={pending}>
+            <Plus className="h-4 w-4" /> Add bet
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}

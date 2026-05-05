@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, sans-serif;
+}
+
+html,
+body {
+  background: #05070d;
+  color: #e6efff;
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* subtle scanline radial glow */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(800px 400px at 10% -10%, rgba(34, 168, 255, 0.08), transparent 60%),
+    radial-gradient(600px 400px at 100% 0%, rgba(34, 168, 255, 0.06), transparent 60%);
+  z-index: 0;
+}
+
+@layer components {
+  .panel {
+    @apply bg-bg-card border border-border rounded-xl shadow-card;
+  }
+  .panel-elev {
+    @apply bg-bg-elevated border border-border-strong rounded-xl shadow-card;
+  }
+  .kpi-label {
+    @apply text-[11px] uppercase tracking-[0.18em] text-ink-dim;
+  }
+  .kpi-value {
+    @apply text-2xl font-semibold text-ink;
+  }
+  .accent-line {
+    background: linear-gradient(90deg, transparent, #22a8ff 50%, transparent);
+    height: 1px;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-bg disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-black hover:bg-accent-glow;
+  }
+  .btn-ghost {
+    @apply btn bg-transparent border border-border hover:border-accent hover:text-accent;
+  }
+  .btn-danger {
+    @apply btn bg-bad/15 border border-bad/40 text-bad hover:bg-bad/25;
+  }
+  .input {
+    @apply w-full rounded-md bg-bg-panel border border-border px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent;
+  }
+  .label {
+    @apply block text-[11px] uppercase tracking-wider text-ink-dim mb-1;
+  }
+  .table-wrap {
+    @apply w-full overflow-auto rounded-xl border border-border;
+  }
+  .tbl {
+    @apply w-full border-collapse text-sm;
+  }
+  .tbl th {
+    @apply text-left text-[11px] uppercase tracking-wider text-ink-dim font-medium px-3 py-2 bg-bg-panel border-b border-border;
+  }
+  .tbl td {
+    @apply px-3 py-2 border-b border-border/60;
+  }
+  .pill {
+    @apply inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium;
+  }
+  .pill-good { @apply pill bg-good/15 text-good; }
+  .pill-bad  { @apply pill bg-bad/15 text-bad; }
+  .pill-warn { @apply pill bg-warn/15 text-warn; }
+  .pill-info { @apply pill bg-accent/15 text-accent; }
+  .pill-mute { @apply pill bg-muted/15 text-ink-dim; }
+}
+
+/* recharts dark tweaks */
+.recharts-cartesian-axis-tick text {
+  fill: #7280a0 !important;
+  font-size: 11px;
+}
+.recharts-default-tooltip {
+  background: #0d1422 !important;
+  border: 1px solid #243456 !important;
+  border-radius: 8px;
+  color: #e6efff !important;
+}

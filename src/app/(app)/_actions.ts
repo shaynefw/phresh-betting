@@ -88,6 +88,79 @@ export async function addBet(input: {
   return { ok: true };
 }
 
+export async function upsertCapperBaseline(input: {
+  capperId: string;
+  systemId: string;
+  total_betting_days: number;
+  total_bets: number;
+  total_risk: number;
+  cumulative_amount_pnl: number;
+  cumulative_units_pnl: number;
+  wins: number;
+  losses: number;
+  green_day_count: number;
+  red_day_count: number;
+  green_day_roi_cumulative: number;
+  red_day_roi_cumulative: number;
+  running_roi_percent: number;
+  win_rate_percent: number;
+  green_day_avg_roi: number;
+  red_day_avg_roi: number;
+  green_day_probability: number;
+  current_streak_value: number;
+  current_streak_type: "green" | "red" | "neutral_hold";
+  max_win_streak: number;
+  max_loss_streak: number;
+  notes: string | null;
+}) {
+  if (!(await ownsSystem(input.systemId))) {
+    return { error: "Access denied" };
+  }
+  const sb = createAdminClient();
+  const { error } = await sb.from("capper_baselines").upsert(
+    {
+      capper_id: input.capperId,
+      system_id: input.systemId,
+      total_betting_days: input.total_betting_days,
+      total_bets: input.total_bets,
+      total_risk: input.total_risk,
+      cumulative_amount_pnl: input.cumulative_amount_pnl,
+      cumulative_units_pnl: input.cumulative_units_pnl,
+      wins: input.wins,
+      losses: input.losses,
+      green_day_count: input.green_day_count,
+      red_day_count: input.red_day_count,
+      green_day_roi_cumulative: input.green_day_roi_cumulative,
+      red_day_roi_cumulative: input.red_day_roi_cumulative,
+      running_roi_percent: input.running_roi_percent,
+      win_rate_percent: input.win_rate_percent,
+      green_day_avg_roi: input.green_day_avg_roi,
+      red_day_avg_roi: input.red_day_avg_roi,
+      green_day_probability: input.green_day_probability,
+      current_streak_value: input.current_streak_value,
+      current_streak_type: input.current_streak_type,
+      max_win_streak: input.max_win_streak,
+      max_loss_streak: input.max_loss_streak,
+      notes: input.notes,
+    },
+    { onConflict: "capper_id" },
+  );
+  if (error) return { error: error.message };
+  revalidatePath(`/cappers/${input.capperId}`);
+  revalidatePath("/cappers");
+  return { ok: true };
+}
+
+export async function clearCapperBaseline(capperId: string, systemId: string) {
+  if (!(await ownsSystem(systemId))) return { error: "Access denied" };
+  const sb = createAdminClient();
+  const { error } = await sb.from("capper_baselines").delete().eq("capper_id", capperId);
+  if (error) return { error: error.message };
+  revalidatePath(`/cappers/${capperId}`);
+  revalidatePath("/cappers");
+  return { ok: true };
+}
+
 export async function deleteBet(betId: string, systemId: string, capperId: string) {
   if (!(await ownsSystem(systemId))) {
     return { error: "Access denied" };

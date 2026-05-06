@@ -120,6 +120,32 @@ export interface JournalDayEntry {
   unit_size_used: number | null;
 }
 
+export interface CapperBaseline {
+  capper_id: UUID;
+  system_id: UUID;
+  total_betting_days: number;
+  total_bets: number;
+  total_risk: number;
+  cumulative_amount_pnl: number;
+  cumulative_units_pnl: number;
+  wins: number;
+  losses: number;
+  green_day_count: number;
+  red_day_count: number;
+  green_day_roi_cumulative: number;
+  red_day_roi_cumulative: number;
+  running_roi_percent: number;
+  win_rate_percent: number;
+  green_day_avg_roi: number;
+  red_day_avg_roi: number;
+  green_day_probability: number;
+  current_streak_value: number;
+  current_streak_type: StreakType;
+  max_win_streak: number;
+  max_loss_streak: number;
+  notes: string | null;
+}
+
 export interface ScalingState {
   currentUnitSize: number;
   bandStartUnits: number;

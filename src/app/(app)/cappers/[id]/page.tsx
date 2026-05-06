@@ -5,16 +5,20 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type {
   Capper,
+  CapperBaseline,
   CapperBetEntry,
   CapperDayEntry,
   ScalingLogEntry,
 } from "@/lib/types";
 import { activeScalingRow } from "@/lib/calc";
+import { combineWithDays } from "@/lib/baseline";
 import { fmtMoney, fmtPct, fmtUnits, pctClass, todayISO } from "@/lib/utils";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import ExportButton from "@/components/ExportButton";
+import PerformanceSummary from "@/components/PerformanceSummary";
 import DayEntryForm from "./DayEntryForm";
 import BetEntryEditor from "./BetEntryEditor";
+import BaselineForm from "./BaselineForm";
 
 export const dynamic = "force-dynamic";
 
@@ -55,11 +59,12 @@ export default async function CapperDetail({
   const supabase = createAdminClient();
   const sysId = ctx.activeSystemId;
 
-  const [{ data: capper }, { data: days }, { data: bets }, { data: scaling }] = await Promise.all([
+  const [{ data: capper }, { data: days }, { data: bets }, { data: scaling }, { data: baselineRow }] = await Promise.all([
     supabase.from("cappers").select("*").eq("id", id).single(),
     supabase.from("capper_day_entries").select("*").eq("capper_id", id).order("date"),
     supabase.from("capper_bet_entries").select("*").eq("capper_id", id).order("date").order("created_at"),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
+    supabase.from("capper_baselines").select("*").eq("capper_id", id).maybeSingle(),
   ]);
 
   if (!capper) notFound();
@@ -69,20 +74,38 @@ export default async function CapperDetail({
   const dayRows = (days ?? []) as CapperDayEntry[];
   const betRows = (bets ?? []) as CapperBetEntry[];
   const scalingRows = (scaling ?? []) as ScalingLogEntry[];
+  const baseline = (baselineRow ?? null) as CapperBaseline | null;
   const today = todayISO();
   const activeRow = activeScalingRow(scalingRows, today);
   const unitSize = activeRow?.unit_size_dollars ?? 0;
 
-  const last = dayRows.at(-1);
-  const cumUnits = Number(last?.cumulative_units_pnl ?? 0);
-  const runRoi = Number(last?.running_roi_percent ?? 0);
+  const combined = combineWithDays(baseline, dayRows);
+  const cumUnits = combined.cumulativeUnits;
+  const runRoi = combined.runningRoi;
 
-  const chartData = dayRows.map((d, i) => ({
-    day: i + 1,
-    date: d.date,
-    cumulativeUnits: Number(d.cumulative_units_pnl),
-    trendline: null,
-  }));
+  // chart: optional baseline anchor at day 0 (= baseline cumulative units),
+  // then each tracked day adds on top.
+  const baselineUnits = Number(baseline?.cumulative_units_pnl ?? 0);
+  const baselineDayOffset = baseline?.total_betting_days ?? 0;
+  const chartData: { day: number; date: string; cumulativeUnits: number; trendline: number | null }[] = [];
+  if (baseline) {
+    chartData.push({
+      day: baselineDayOffset,
+      date: "baseline",
+      cumulativeUnits: baselineUnits,
+      trendline: null,
+    });
+  }
+  let runningUnits = baselineUnits;
+  dayRows.forEach((d, i) => {
+    runningUnits += Number(d.daily_units_pnl);
+    chartData.push({
+      day: baselineDayOffset + i + 1,
+      date: d.date,
+      cumulativeUnits: runningUnits,
+      trendline: null,
+    });
+  });
 
   const betsByDay = new Map<string, CapperBetEntry[]>();
   for (const b of betRows) {
@@ -107,29 +130,77 @@ export default async function CapperDetail({
             @ ${unitSize}/u
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <BaselineForm capperId={c.id} systemId={sysId} baseline={baseline} />
           <Link href="/cappers" className="btn-ghost">All cappers</Link>
           <ExportButton targetId="capper-root" filename={`${c.name}.png`} />
         </div>
       </header>
 
-      <section className="grid md:grid-cols-4 gap-3">
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat label="Cumulative Units" value={fmtUnits(cumUnits)} tone={cumUnits} />
         <Stat label="Running ROI" value={fmtPct(runRoi)} tone={runRoi} />
         <Stat
           label="Win Rate"
-          value={
-            last
-              ? `${last.record_wins}-${last.record_losses} (${last.win_rate_percent.toFixed(0)}%)`
-              : "—"
-          }
+          value={`${combined.wins}-${combined.losses} (${combined.winRate.toFixed(0)}%)`}
         />
-        <Stat label="Days" value={dayRows.length} />
+        <Stat label="Days" value={combined.totalDays} />
       </section>
 
       <section className="panel p-4">
-        <div className="kpi-label mb-2">Cumulative Units — Trend</div>
+        <div className="kpi-label mb-2 flex items-center gap-2">
+          Cumulative Units — Trend
+          {baseline && (
+            <span className="pill-info">starts at baseline {fmtUnits(baselineUnits)}</span>
+          )}
+        </div>
         <CumulativeUnitsChart data={chartData} height={260} />
+      </section>
+
+      {/* Performance summary + (optional) baseline / tracked split */}
+      <section className="grid lg:grid-cols-2 gap-4">
+        <PerformanceSummary
+          title={baseline ? "Combined Performance Summary" : "Performance Summary"}
+          badge={
+            baseline ? (
+              <span className="pill-info">baseline + tracked</span>
+            ) : null
+          }
+          totalDays={combined.totalDays}
+          totalBets={combined.totalBets}
+          totalRisk={combined.totalRisk}
+          cumulativeAmount={combined.cumulativeAmount}
+          cumulativeUnits={combined.cumulativeUnits}
+          runningRoi={combined.runningRoi}
+          winRate={combined.winRate}
+          wins={combined.wins}
+          losses={combined.losses}
+          greenDays={combined.greenDays}
+          redDays={combined.redDays}
+          greenAvgRoi={combined.greenAvgRoi}
+          redAvgRoi={combined.redAvgRoi}
+          greenProbability={combined.greenProbability}
+          currentStreakType={combined.currentStreakType}
+          currentStreakValue={combined.currentStreakValue}
+          maxWinStreak={combined.maxWinStreak}
+          maxLossStreak={combined.maxLossStreak}
+        />
+
+        {baseline ? (
+          <BaselineSplit
+            baseline={baseline}
+            trackedDays={dayRows}
+          />
+        ) : (
+          <div className="panel p-3 md:p-5 flex flex-col justify-center items-start gap-3">
+            <div className="kpi-label">Historical baseline</div>
+            <p className="text-sm text-ink-dim">
+              No baseline set. If this capper has pre-app totals you want to roll forward, click
+              <strong className="text-ink"> Set historical baseline</strong> at the top to seed
+              starting metrics.
+            </p>
+          </div>
+        )}
       </section>
 
       <section className="grid lg:grid-cols-3 gap-4">
@@ -249,9 +320,85 @@ function Stat({
   const cls =
     typeof tone === "number" ? (tone > 0 ? "text-good" : tone < 0 ? "text-bad" : "") : "";
   return (
-    <div className="panel p-4">
+    <div className="panel p-3 md:p-4">
       <div className="kpi-label mb-1">{label}</div>
       <div className={`kpi-value font-mono ${cls}`}>{value}</div>
     </div>
+  );
+}
+
+function BaselineSplit({
+  baseline,
+  trackedDays,
+}: {
+  baseline: CapperBaseline;
+  trackedDays: CapperDayEntry[];
+}) {
+  const trackedAmount = trackedDays.reduce((s, d) => s + Number(d.daily_amount_pnl), 0);
+  const trackedUnits = trackedDays.reduce((s, d) => s + Number(d.daily_units_pnl), 0);
+  const trackedBets = trackedDays.reduce((s, d) => s + Number(d.bet_count), 0);
+  const trackedRisk = trackedDays.reduce((s, d) => s + Number(d.wager_total), 0);
+
+  return (
+    <div className="panel p-3 md:p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="kpi-label">Baseline + Tracked split</h3>
+        <span className="pill-info">historical baseline</span>
+      </div>
+      <div className="grid grid-cols-3 text-sm gap-y-2">
+        <div className="kpi-label text-[10px]">Metric</div>
+        <div className="kpi-label text-[10px] text-right">Baseline</div>
+        <div className="kpi-label text-[10px] text-right">Tracked</div>
+
+        <SplitRow label="Days"
+          a={baseline.total_betting_days}
+          b={trackedDays.length} />
+        <SplitRow label="Bets"
+          a={baseline.total_bets}
+          b={trackedBets} />
+        <SplitRow label="$ Profit"
+          a={fmtMoney(Number(baseline.cumulative_amount_pnl), { sign: true })}
+          b={fmtMoney(trackedAmount, { sign: true })} />
+        <SplitRow label="Units"
+          a={fmtUnits(Number(baseline.cumulative_units_pnl))}
+          b={fmtUnits(trackedUnits)} />
+        <SplitRow label="Total Risk"
+          a={fmtMoney(Number(baseline.total_risk))}
+          b={fmtMoney(trackedRisk)} />
+        <SplitRow label="Wins / Losses"
+          a={`${baseline.wins}-${baseline.losses}`}
+          b={`${trackedDays.reduce((s, d) => s + d.wins, 0)}-${trackedDays.reduce((s, d) => s + d.losses, 0)}`} />
+        <SplitRow label="Green Days"
+          a={baseline.green_day_count}
+          b={trackedDays.filter((d) => Number(d.daily_roi_percent) > 0).length} />
+        <SplitRow label="Red Days"
+          a={baseline.red_day_count}
+          b={trackedDays.filter((d) => Number(d.daily_roi_percent) < 0).length} />
+      </div>
+      {baseline.notes && (
+        <p className="text-xs text-ink-dim mt-3 border-t border-border pt-2">
+          <span className="kpi-label text-[10px] mr-2">Notes</span>
+          {baseline.notes}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SplitRow({
+  label,
+  a,
+  b,
+}: {
+  label: string;
+  a: React.ReactNode;
+  b: React.ReactNode;
+}) {
+  return (
+    <>
+      <div className="text-ink-dim">{label}</div>
+      <div className="text-right font-mono text-ink-dim">{a}</div>
+      <div className="text-right font-mono">{b}</div>
+    </>
   );
 }

@@ -151,6 +151,73 @@ export async function upsertCapperBaseline(input: {
   return { ok: true };
 }
 
+export async function upsertSystemBaseline(input: {
+  systemId: string;
+  total_betting_days: number;
+  total_bets: number;
+  total_risk: number;
+  cumulative_amount_pnl: number;
+  cumulative_units_pnl: number;
+  wins: number;
+  losses: number;
+  green_day_count: number;
+  red_day_count: number;
+  green_day_roi_cumulative: number;
+  red_day_roi_cumulative: number;
+  running_roi_percent: number;
+  win_rate_percent: number;
+  green_day_avg_roi: number;
+  red_day_avg_roi: number;
+  green_day_probability: number;
+  max_win_streak: number;
+  max_loss_streak: number;
+  notes: string | null;
+}) {
+  if (!(await ownsSystem(input.systemId))) {
+    return { error: "Access denied" };
+  }
+  const sb = createAdminClient();
+  const { error } = await sb.from("system_baselines").upsert(
+    {
+      system_id: input.systemId,
+      total_betting_days: input.total_betting_days,
+      total_bets: input.total_bets,
+      total_risk: input.total_risk,
+      cumulative_amount_pnl: input.cumulative_amount_pnl,
+      cumulative_units_pnl: input.cumulative_units_pnl,
+      wins: input.wins,
+      losses: input.losses,
+      green_day_count: input.green_day_count,
+      red_day_count: input.red_day_count,
+      green_day_roi_cumulative: input.green_day_roi_cumulative,
+      red_day_roi_cumulative: input.red_day_roi_cumulative,
+      running_roi_percent: input.running_roi_percent,
+      win_rate_percent: input.win_rate_percent,
+      green_day_avg_roi: input.green_day_avg_roi,
+      red_day_avg_roi: input.red_day_avg_roi,
+      green_day_probability: input.green_day_probability,
+      max_win_streak: input.max_win_streak,
+      max_loss_streak: input.max_loss_streak,
+      notes: input.notes,
+    },
+    { onConflict: "system_id" },
+  );
+  if (error) return { error: error.message };
+  revalidatePath("/dashboard");
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+export async function clearSystemBaseline(systemId: string) {
+  if (!(await ownsSystem(systemId))) return { error: "Access denied" };
+  const sb = createAdminClient();
+  const { error } = await sb.from("system_baselines").delete().eq("system_id", systemId);
+  if (error) return { error: error.message };
+  revalidatePath("/dashboard");
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
 export async function clearCapperBaseline(capperId: string, systemId: string) {
   if (!(await ownsSystem(systemId))) return { error: "Access denied" };
   const sb = createAdminClient();
@@ -212,6 +279,27 @@ interface BackupPayload {
     units_risk_multiplier?: number | null;
     notes?: string | null;
   }>;
+  system_baseline?: {
+    total_betting_days: number;
+    total_bets: number;
+    total_risk: number;
+    cumulative_amount_pnl: number;
+    cumulative_units_pnl: number;
+    wins: number;
+    losses: number;
+    green_day_count: number;
+    red_day_count: number;
+    green_day_roi_cumulative: number;
+    red_day_roi_cumulative: number;
+    running_roi_percent: number;
+    win_rate_percent: number;
+    green_day_avg_roi: number;
+    red_day_avg_roi: number;
+    green_day_probability: number;
+    max_win_streak: number;
+    max_loss_streak: number;
+    notes?: string | null;
+  } | null;
   capper_baselines?: Array<{
     capper_id: string;
     total_betting_days: number;
@@ -257,6 +345,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
   await sb.from("capper_bet_entries").delete().eq("system_id", systemId);
   await sb.from("capper_day_entries").delete().eq("system_id", systemId);
   await sb.from("capper_baselines").delete().eq("system_id", systemId);
+  await sb.from("system_baselines").delete().eq("system_id", systemId);
   await sb.from("cappers").delete().eq("system_id", systemId);
 
   const capperIdMap = new Map<string, string>();
@@ -374,6 +463,36 @@ export async function importBackup(systemId: string, payloadJson: string) {
     if (error) return { error: error.message };
   }
 
+  // system-level baseline (v3 backups)
+  let systemBaselineImported = false;
+  if (data.system_baseline) {
+    const sb2 = data.system_baseline;
+    const { error } = await sb.from("system_baselines").insert({
+      system_id: systemId,
+      total_betting_days: sb2.total_betting_days,
+      total_bets: sb2.total_bets,
+      total_risk: sb2.total_risk,
+      cumulative_amount_pnl: sb2.cumulative_amount_pnl,
+      cumulative_units_pnl: sb2.cumulative_units_pnl,
+      wins: sb2.wins,
+      losses: sb2.losses,
+      green_day_count: sb2.green_day_count,
+      red_day_count: sb2.red_day_count,
+      green_day_roi_cumulative: sb2.green_day_roi_cumulative,
+      red_day_roi_cumulative: sb2.red_day_roi_cumulative,
+      running_roi_percent: sb2.running_roi_percent,
+      win_rate_percent: sb2.win_rate_percent,
+      green_day_avg_roi: sb2.green_day_avg_roi,
+      red_day_avg_roi: sb2.red_day_avg_roi,
+      green_day_probability: sb2.green_day_probability,
+      max_win_streak: sb2.max_win_streak,
+      max_loss_streak: sb2.max_loss_streak,
+      notes: sb2.notes ?? null,
+    });
+    if (error) return { error: error.message };
+    systemBaselineImported = true;
+  }
+
   revalidatePath("/dashboard");
   revalidatePath("/journal");
   revalidatePath("/cappers");
@@ -386,6 +505,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
       days: dayIdMap.size,
       bets: betRows.length,
       baselines: baselineRows.length,
+      system_baseline: systemBaselineImported,
     },
   };
 }

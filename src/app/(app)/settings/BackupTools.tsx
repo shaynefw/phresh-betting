@@ -70,11 +70,14 @@ export default function BackupTools({ systemId, payload }: Props) {
       }
       const s = res?.summary;
       if (s) {
-        setMsg(
-          `Imported ${s.cappers} cappers, ${s.days} days, ${s.bets} bets${
-            "baselines" in s && s.baselines ? `, ${s.baselines} baselines` : ""
-          }.`,
-        );
+        const parts = [
+          `${s.cappers} cappers`,
+          `${s.days} days`,
+          `${s.bets} bets`,
+        ];
+        if ("baselines" in s && s.baselines) parts.push(`${s.baselines} capper baselines`);
+        if ("system_baseline" in s && s.system_baseline) parts.push("system baseline");
+        setMsg(`Imported ${parts.join(", ")}.`);
       }
       setImportJson("");
       setFilename(null);

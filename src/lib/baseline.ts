@@ -7,25 +7,39 @@
  * tracked side if any tracked days exist, else baseline.
  */
 
-import type { CapperBaseline, CapperDayEntry, StreakType } from "./types";
+import type {
+  CapperBaseline,
+  CapperDayEntry,
+  StreakType,
+  SystemBaseline,
+} from "./types";
 import { rollupCapperDays, type CapperRollupSummary } from "./calc";
 import { safeDiv } from "./utils";
 
 /**
- * Collapse multiple capper baselines into a single system-level baseline.
- * Counters add. Streaks: max-streaks take the max; current streak gets
- * "neutral_hold" (a system isn't really on a single streak across cappers).
- * Ratios are not stored — recompute from totals when blending.
+ * Collapse multiple capper baselines (and an optional system-level
+ * baseline) into a single CapperBaseline-shaped aggregate.
+ * Counters add. Max streaks take the max. Current streak is set to
+ * `neutral_hold` because a system isn't on a single streak across
+ * cappers. Ratios are not stored — recompute from totals when blending.
  */
 export function aggregateBaselines(
   rows: CapperBaseline[],
   systemId: string,
+  systemBaseline?: SystemBaseline | null,
 ): CapperBaseline | null {
-  if (rows.length === 0) return null;
-  const sum = (k: keyof CapperBaseline) =>
-    rows.reduce((s, r) => s + Number(r[k] ?? 0), 0);
-  const max = (k: keyof CapperBaseline) =>
-    rows.reduce((m, r) => Math.max(m, Number(r[k] ?? 0)), 0);
+  if (rows.length === 0 && !systemBaseline) return null;
+  const num = (v: number | null | undefined) => Number(v ?? 0);
+  const sumCapper = (k: keyof CapperBaseline) =>
+    rows.reduce((s, r) => s + num(r[k] as number | null | undefined), 0);
+  const sumSystem = (k: keyof SystemBaseline) =>
+    systemBaseline ? num(systemBaseline[k] as number | null | undefined) : 0;
+  const sum = (k: keyof CapperBaseline & keyof SystemBaseline) =>
+    sumCapper(k) + sumSystem(k);
+  const maxCapper = (k: keyof CapperBaseline) =>
+    rows.reduce((m, r) => Math.max(m, num(r[k] as number | null | undefined)), 0);
+  const max = (k: keyof CapperBaseline & keyof SystemBaseline) =>
+    Math.max(maxCapper(k), sumSystem(k));
   return {
     capper_id: "_system_aggregate",
     system_id: systemId,

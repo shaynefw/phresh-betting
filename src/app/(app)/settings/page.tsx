@@ -9,8 +9,10 @@ import type {
   CapperDayEntry,
   ScalingLogEntry,
   System,
+  SystemBaseline,
 } from "@/lib/types";
 import BackupTools from "./BackupTools";
+import SystemBaselineForm from "./SystemBaselineForm";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +44,7 @@ export default async function SettingsPage() {
     { data: days },
     { data: bets },
     { data: baselines },
+    { data: systemBaselineRow },
   ] = await Promise.all([
     supabase.from("systems").select("*").eq("id", sysId).single(),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
@@ -49,18 +52,23 @@ export default async function SettingsPage() {
     supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
     supabase.from("capper_bet_entries").select("*").eq("system_id", sysId).order("date"),
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
+    supabase.from("system_baselines").select("*").eq("system_id", sysId).maybeSingle(),
   ]);
 
   const system = sys as System;
+  const capperBaselines = (baselines ?? []) as CapperBaseline[];
+  const systemBaseline = (systemBaselineRow ?? null) as SystemBaseline | null;
+
   const exportPayload = {
-    version: 2,
+    version: 3,
     exported_at: new Date().toISOString(),
     system,
     scaling: (scaling ?? []) as ScalingLogEntry[],
     cappers: (cappers ?? []) as Capper[],
     capper_days: (days ?? []) as CapperDayEntry[],
     capper_bets: (bets ?? []) as CapperBetEntry[],
-    capper_baselines: (baselines ?? []) as CapperBaseline[],
+    capper_baselines: capperBaselines,
+    system_baseline: systemBaseline,
   };
 
   return (
@@ -88,6 +96,12 @@ export default async function SettingsPage() {
           <button className="btn-primary">Save settings</button>
         </div>
       </form>
+
+      <SystemBaselineForm
+        systemId={sysId}
+        systemBaseline={systemBaseline}
+        capperBaselines={capperBaselines}
+      />
 
       <BackupTools systemId={sysId} payload={exportPayload} />
     </div>

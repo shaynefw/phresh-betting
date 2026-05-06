@@ -21,6 +21,7 @@ import type {
   JournalDayEntry,
   ScalingLogEntry,
   System,
+  SystemBaseline,
 } from "@/lib/types";
 import { aggregateBaselines, combineWithJournal } from "@/lib/baseline";
 import ExportButton from "@/components/ExportButton";
@@ -51,6 +52,7 @@ export default async function Dashboard({
     { data: cappers },
     { data: dayRows },
     { data: baselineRows },
+    { data: systemBaselineRow },
   ] = await Promise.all([
     supabase.from("systems").select("*").eq("id", sysId).single(),
     supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date"),
@@ -58,6 +60,7 @@ export default async function Dashboard({
     supabase.from("cappers").select("*").eq("system_id", sysId).order("sort_order").order("created_at"),
     supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
+    supabase.from("system_baselines").select("*").eq("system_id", sysId).maybeSingle(),
   ]);
 
   const system = sys as System;
@@ -66,13 +69,15 @@ export default async function Dashboard({
   const capperRows = (cappers ?? []) as Capper[];
   const allDayRows = (dayRows ?? []) as CapperDayEntry[];
   const baselines = (baselineRows ?? []) as CapperBaseline[];
+  const systemBaselineRaw = (systemBaselineRow ?? null) as SystemBaseline | null;
 
   // restrict baselines to non-archived cappers (archived shouldn't count toward live totals)
   const activeCapperIds = new Set(capperRows.filter((c) => !c.is_archived).map((c) => c.id));
   const activeBaselines = baselines.filter((b) => activeCapperIds.has(b.capper_id));
   const baselineByCapper = new Map<string, CapperBaseline>();
   for (const b of activeBaselines) baselineByCapper.set(b.capper_id, b);
-  const systemBaseline = aggregateBaselines(activeBaselines, sysId);
+  // aggregate now folds in the optional system-level baseline too
+  const systemBaseline = aggregateBaselines(activeBaselines, sysId, systemBaselineRaw);
 
   const focusDate = sp.date || journalRows.at(-1)?.date || todayISO();
   const dayJournal = journalRows.find((j) => j.date === focusDate);

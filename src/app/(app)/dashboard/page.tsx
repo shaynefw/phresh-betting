@@ -169,9 +169,12 @@ export default async function Dashboard({
               style={{ width: `${scaleState.scaleUpProgressPct}%` }}
             />
           </div>
-          <div className="text-xs text-ink-dim mt-1">
-            {scaleState.unitsAboveBand.toFixed(2)}u above band ({scaleState.bandStartUnits}u →{" "}
-            {scaleState.scaleUpAt}u)
+          <div className="text-xs text-ink-dim mt-1 flex items-center justify-between gap-2">
+            <span>{scaleState.bandStartUnits}u <span className="text-muted">scale↓</span></span>
+            <span className="font-mono text-ink">
+              {summary.cumulativeUnits.toFixed(2)}u
+            </span>
+            <span><span className="text-muted">scale↑</span> {scaleState.scaleUpAt}u</span>
           </div>
         </div>
         <div className="panel p-4">

@@ -22,42 +22,55 @@ export function scaleSize(size: number, direction: "up" | "down"): number {
 
 /**
  * Compute scaling state given the latest journal cumulative units and the
- * current scaling log. The `bandStartUnits` is the cumulative-units value
- * recorded on the active scaling row's `starting_units_threshold` column,
- * defaulting to 0.
+ * current scaling log row.
+ *
+ * The active scaling row's two thresholds define the band the user is
+ * currently inside:
+ *   - `starting_units_threshold` = lower band (scale-DOWN trigger)
+ *   - `ending_units_threshold`   = upper band (scale-UP trigger)
+ *
+ * The progress bar maps the band to 0..100%:
+ *   progress % = (cumulative - lower) / (upper - lower) * 100
+ *
+ * 0%   = at the scale-down boundary (you would drop a level)
+ * 100% = at the scale-up boundary   (you would advance a level)
+ *
+ * If the band has zero width (lower == upper) the bar reads 0%.
  */
 export function computeScalingState(
   cumulativeUnits: number,
   activeRow: ScalingLogEntry | null,
 ): ScalingState {
   const currentUnitSize = activeRow?.unit_size_dollars ?? 0;
-  const bandStart = Number(activeRow?.starting_units_threshold ?? 0);
-  const scaleUpAt = bandStart + SCALE_BAND_UNITS;
-  const scaleDownAt = bandStart - SCALE_BAND_UNITS;
-  const unitsAboveBand = cumulativeUnits - bandStart;
+  const lower = Number(activeRow?.starting_units_threshold ?? 0);
+  const upperRaw = activeRow?.ending_units_threshold;
+  const upper =
+    upperRaw == null
+      ? lower + SCALE_BAND_UNITS
+      : Number(upperRaw);
 
-  // progress to next scale-up event, capped 0..100
-  const progress = Math.max(
-    0,
-    Math.min(100, (unitsAboveBand / SCALE_BAND_UNITS) * 100),
-  );
+  const span = upper - lower;
+  const progress =
+    span <= 0
+      ? 0
+      : Math.max(0, Math.min(100, ((cumulativeUnits - lower) / span) * 100));
 
   let pendingNextSize: number | undefined;
   let pendingDirection: "up" | "down" | undefined;
-  if (cumulativeUnits >= scaleUpAt && currentUnitSize > 0) {
+  if (cumulativeUnits >= upper && currentUnitSize > 0) {
     pendingNextSize = scaleSize(currentUnitSize, "up");
     pendingDirection = "up";
-  } else if (cumulativeUnits <= scaleDownAt && currentUnitSize > 0) {
+  } else if (cumulativeUnits <= lower && currentUnitSize > 0) {
     pendingNextSize = scaleSize(currentUnitSize, "down");
     pendingDirection = "down";
   }
 
   return {
     currentUnitSize,
-    bandStartUnits: bandStart,
-    unitsAboveBand,
-    scaleUpAt,
-    scaleDownAt,
+    bandStartUnits: lower,
+    unitsAboveBand: cumulativeUnits - lower,
+    scaleUpAt: upper,
+    scaleDownAt: lower,
     scaleUpProgressPct: progress,
     pendingNextSize,
     pendingDirection,

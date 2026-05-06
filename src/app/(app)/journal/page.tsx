@@ -24,7 +24,7 @@ export default async function JournalPage({
   const rows = (data ?? []) as JournalDayEntry[];
 
   return (
-    <div className="p-6 space-y-6" id="journal-root">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="journal-root">
       <header className="flex items-end justify-between gap-3">
         <div>
           <div className="text-[10px] tracking-[0.4em] text-accent uppercase">Journal</div>

@@ -196,7 +196,7 @@ declare
   streak_val integer := 0; streak_type text := 'neutral_hold';
   max_win integer := 0; max_loss integer := 0;
   bet_w integer; bet_l integer; bet_v integer;
-  sum_wager numeric; sum_pnl numeric; bet_count integer;
+  sum_wager numeric; sum_pnl numeric; v_bet_count integer;
   unit_size numeric; daily_units numeric; daily_roi numeric;
   win_rate numeric; running_roi numeric; sysid uuid;
 begin
@@ -210,11 +210,11 @@ begin
              coalesce(count(*)          filter (where bet_result = 'win'),0),
              coalesce(count(*)          filter (where bet_result = 'loss'),0),
              coalesce(count(*)          filter (where bet_result = 'void'),0)
-      into sum_wager, sum_pnl, bet_count, bet_w, bet_l, bet_v
+      into sum_wager, sum_pnl, v_bet_count, bet_w, bet_l, bet_v
       from public.capper_bet_entries where capper_day_entry_id = d.id;
     else
       sum_wager := d.wager_total; sum_pnl := d.daily_amount_pnl;
-      bet_count := d.bet_count; bet_w := d.wins; bet_l := d.losses;
+      v_bet_count := d.bet_count; bet_w := d.wins; bet_l := d.losses;
     end if;
     unit_size := coalesce(d.unit_size_used, public.active_unit_size(d.system_id, d.date), 1);
     if unit_size = 0 then unit_size := 1; end if;
@@ -234,7 +234,7 @@ begin
       if streak_val > max_loss then max_loss := streak_val; end if;
     end if;
     update public.capper_day_entries set
-      wager_total = sum_wager, bet_count = bet_count, daily_amount_pnl = sum_pnl,
+      wager_total = sum_wager, bet_count = v_bet_count, daily_amount_pnl = sum_pnl,
       wins = bet_w, losses = bet_l, unit_size_used = unit_size,
       daily_units_pnl = daily_units, daily_roi_percent = daily_roi,
       cumulative_amount_pnl = cum_amt, cumulative_units_pnl = cum_units,

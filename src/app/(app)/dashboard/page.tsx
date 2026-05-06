@@ -88,32 +88,32 @@ export default async function Dashboard({
   }
 
   return (
-    <div className="p-6 space-y-6" id="dashboard-root">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="dashboard-root">
+      <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
         <div>
           <div className="text-[10px] tracking-[0.4em] text-accent uppercase">
             {system?.name ?? "System"}
           </div>
-          <h1 className="text-3xl font-bold">Betting System Dashboard</h1>
-          <div className="text-ink-dim text-sm mt-1">
-            {summary.totalDays} betting days · 1u =&nbsp;
+          <h1 className="text-xl md:text-3xl font-bold">Betting System Dashboard</h1>
+          <div className="text-ink-dim text-xs md:text-sm mt-1 flex flex-wrap items-center gap-1">
+            <span>{summary.totalDays} betting days · 1u =&nbsp;</span>
             <span className="text-accent">${scaleState.currentUnitSize}</span>
             {scaleState.pendingDirection && (
-              <span className="ml-2 pill-info">
-                pending → ${scaleState.pendingNextSize} ({scaleState.pendingDirection}) tomorrow
+              <span className="pill-info">
+                → ${scaleState.pendingNextSize} ({scaleState.pendingDirection}) tomorrow
               </span>
             )}
           </div>
         </div>
-        <div className="flex gap-2 items-center">
-          <form>
+        <div className="flex flex-wrap gap-2 items-center">
+          <form className="flex gap-2 items-center">
             <input
               type="date"
               name="date"
               defaultValue={focusDate}
-              className="input"
+              className="input flex-1"
             />
-            <button className="btn-ghost ml-2" type="submit">Set</button>
+            <button className="btn-ghost shrink-0" type="submit">Set</button>
           </form>
           <ExportButton targetId="dashboard-root" filename={`${system?.name ?? "system"}-${focusDate}.png`} />
         </div>
@@ -213,7 +213,7 @@ export default async function Dashboard({
 
       {/* performance summary */}
       <section className="grid lg:grid-cols-2 gap-4">
-        <div className="panel p-5">
+        <div className="panel p-3 md:p-5">
           <h3 className="kpi-label mb-3">Performance Summary</h3>
           <div className="grid grid-cols-2 gap-y-2 text-sm">
             <Row label="Total # of betting days" value={summary.totalDays} />
@@ -258,9 +258,9 @@ export default async function Dashboard({
           </div>
         </div>
 
-        <div className="panel p-5">
+        <div className="panel p-3 md:p-5">
           <h3 className="kpi-label mb-3">Daily Summary — {focusDate}</h3>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <MiniStat label="Total # of bets" value={dayJournal?.total_bets ?? 0} />
             <MiniStat label="Total Risk" value={fmtMoney(dayJournal?.total_wager ?? 0)} />
             <MiniStat

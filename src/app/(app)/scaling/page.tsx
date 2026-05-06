@@ -54,7 +54,7 @@ export default async function ScalingPage() {
   const rows = (data ?? []) as ScalingLogEntry[];
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       <header>
         <div className="text-[10px] tracking-[0.4em] text-accent uppercase">Scaling Log</div>
         <h1 className="text-2xl font-bold">Unit size history</h1>

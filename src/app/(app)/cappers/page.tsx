@@ -92,14 +92,12 @@ export default async function CappersPage() {
   const archived = list.filter((c) => c.is_archived);
 
   return (
-    <div className="p-6 space-y-6">
-      <header className="flex justify-between items-end">
-        <div>
-          <div className="text-[10px] tracking-[0.4em] text-accent uppercase">Cappers</div>
-          <h1 className="text-2xl font-bold">Capper Performance Overview</h1>
-          <div className="text-ink-dim text-sm">
-            1u = <span className="text-accent">${unitSize}</span>
-          </div>
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
+      <header>
+        <div className="text-[10px] tracking-[0.4em] text-accent uppercase">Cappers</div>
+        <h1 className="text-xl md:text-2xl font-bold">Capper Performance Overview</h1>
+        <div className="text-ink-dim text-xs md:text-sm">
+          1u = <span className="text-accent">${unitSize}</span>
         </div>
       </header>
 
@@ -118,7 +116,77 @@ export default async function CappersPage() {
         </div>
       </form>
 
-      <div className="panel p-0">
+      {/* mobile stacked cards */}
+      <div className="md:hidden space-y-2">
+        {active.length === 0 && (
+          <p className="text-sm text-ink-dim text-center py-4">No cappers yet.</p>
+        )}
+        {active.map((c) => {
+          const last = lastByCapper.get(c.id);
+          const cum = Number(last?.cumulative_units_pnl ?? 0);
+          const roi = Number(last?.running_roi_percent ?? 0);
+          const dollars = c.base_system_risk_units * unitSize;
+          return (
+            <div key={c.id} className="panel p-3">
+              <div className="flex items-start justify-between mb-2">
+                <Link href={`/cappers/${c.id}`} className="font-semibold text-ink hover:text-accent">
+                  {c.name}
+                </Link>
+                <form action={archiveCapper}>
+                  <input type="hidden" name="id" value={c.id} />
+                  <button className="btn-ghost text-[10px] py-1">Archive</button>
+                </form>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono mb-2">
+                <div>
+                  <div className="kpi-label text-[9px]">Cum Units</div>
+                  <div className={pctClass(cum)}>{fmtUnits(cum)}</div>
+                </div>
+                <div>
+                  <div className="kpi-label text-[9px]">Run ROI</div>
+                  <div className={pctClass(roi)}>{fmtPct(roi)}</div>
+                </div>
+                <div>
+                  <div className="kpi-label text-[9px]">Risk</div>
+                  <div>{c.base_system_risk_units}u · {fmtMoney(dollars)}</div>
+                </div>
+                <div>
+                  <div className="kpi-label text-[9px]">Record</div>
+                  <div>{last ? `${last.record_wins}-${last.record_losses}` : "—"}</div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <form action={updatePhase} className="flex-1">
+                  <input type="hidden" name="id" value={c.id} />
+                  <AutoSubmitSelect
+                    name="phase"
+                    defaultValue={c.current_phase}
+                    options={[
+                      { value: "heater", label: "Heater" },
+                      { value: "lukewarm", label: "Lukewarm" },
+                      { value: "cold", label: "Cold" },
+                    ]}
+                  />
+                </form>
+                <form action={updateChecklist} className="flex-1">
+                  <input type="hidden" name="id" value={c.id} />
+                  <AutoSubmitSelect
+                    name="checklist"
+                    defaultValue={c.checklist_status}
+                    options={[
+                      { value: "started", label: "Started" },
+                      { value: "complete", label: "Complete" },
+                    ]}
+                  />
+                </form>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* desktop table */}
+      <div className="panel p-0 hidden md:block">
         <div className="table-wrap">
           <table className="tbl">
             <thead>

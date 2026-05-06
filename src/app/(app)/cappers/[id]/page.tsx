@@ -92,7 +92,7 @@ export default async function CapperDetail({
   }
 
   return (
-    <div className="p-6 space-y-6" id="capper-root">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="capper-root">
       <header className="flex items-end justify-between gap-3">
         <div>
           <div className="text-[10px] tracking-[0.4em] text-accent uppercase">

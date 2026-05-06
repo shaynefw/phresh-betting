@@ -1,11 +1,47 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { dark } from "@clerk/themes";
 import "./globals.css";
 
+const SITE_URL = "https://phresh-betting.vercel.app";
+const SITE_TITLE = "Phresh Mastery — Sports Betting Command Center";
+const SITE_DESC =
+  "Track multiple systems, multiple cappers, deterministic scaling, and a fully synced daily journal. Premium dark dashboard built for serious operators.";
+
 export const metadata: Metadata = {
-  title: "Phresh Mastery — Betting System",
-  description: "Premium sports betting performance command center.",
+  metadataBase: new URL(SITE_URL),
+  title: {
+    default: SITE_TITLE,
+    template: "%s · Phresh Mastery",
+  },
+  description: SITE_DESC,
+  applicationName: "Phresh Mastery",
+  keywords: [
+    "sports betting",
+    "betting tracker",
+    "capper performance",
+    "betting analytics",
+    "scaling system",
+    "betting journal",
+  ],
+  openGraph: {
+    type: "website",
+    url: SITE_URL,
+    siteName: "Phresh Mastery",
+    title: SITE_TITLE,
+    description: SITE_DESC,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: SITE_TITLE,
+    description: SITE_DESC,
+  },
+  robots: { index: true, follow: true },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#05070d",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({

@@ -307,6 +307,7 @@ end $$;
 create or replace function public.trg_after_cde() returns trigger language plpgsql as $$
 declare v_capper uuid; v_system uuid;
 begin
+  if pg_trigger_depth() > 1 then return null; end if;
   v_capper := coalesce(new.capper_id, old.capper_id);
   v_system := coalesce(new.system_id, old.system_id);
   perform public.recompute_capper(v_capper);
@@ -320,6 +321,7 @@ create trigger cde_after after insert or update or delete on public.capper_day_e
 create or replace function public.trg_after_cbe() returns trigger language plpgsql as $$
 declare v_capper uuid; v_system uuid;
 begin
+  if pg_trigger_depth() > 1 then return null; end if;
   v_capper := coalesce(new.capper_id, old.capper_id);
   v_system := coalesce(new.system_id, old.system_id);
   perform public.recompute_capper(v_capper);
@@ -333,6 +335,7 @@ create trigger cbe_after after insert or update or delete on public.capper_bet_e
 create or replace function public.trg_after_scaling() returns trigger language plpgsql as $$
 declare c record; v_system uuid;
 begin
+  if pg_trigger_depth() > 1 then return null; end if;
   v_system := coalesce(new.system_id, old.system_id);
   for c in select id from public.cappers where system_id = v_system loop
     perform public.recompute_capper(c.id);

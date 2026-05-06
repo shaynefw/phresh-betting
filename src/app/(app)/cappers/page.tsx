@@ -6,6 +6,7 @@ import { loadShellContext } from "@/lib/active-system";
 import type { Capper, CapperDayEntry, ScalingLogEntry } from "@/lib/types";
 import { activeScalingRow } from "@/lib/calc";
 import { fmtMoney, fmtPct, fmtUnits, pctClass, todayISO } from "@/lib/utils";
+import AutoSubmitSelect from "@/components/AutoSubmitSelect";
 
 export const dynamic = "force-dynamic";
 
@@ -141,15 +142,14 @@ export default async function CappersPage() {
                     <td>
                       <form action={updateChecklist} className="inline-block">
                         <input type="hidden" name="id" value={c.id} />
-                        <select
+                        <AutoSubmitSelect
                           name="checklist"
                           defaultValue={c.checklist_status}
-                          className="input py-1 text-xs"
-                          onChange={(e) => e.currentTarget.form?.requestSubmit()}
-                        >
-                          <option value="started">Started</option>
-                          <option value="complete">Complete</option>
-                        </select>
+                          options={[
+                            { value: "started", label: "Started" },
+                            { value: "complete", label: "Complete" },
+                          ]}
+                        />
                       </form>
                     </td>
                     <td>
@@ -160,16 +160,15 @@ export default async function CappersPage() {
                     <td>
                       <form action={updatePhase} className="inline-block">
                         <input type="hidden" name="id" value={c.id} />
-                        <select
+                        <AutoSubmitSelect
                           name="phase"
                           defaultValue={c.current_phase}
-                          className="input py-1 text-xs"
-                          onChange={(e) => e.currentTarget.form?.requestSubmit()}
-                        >
-                          <option value="heater">Heater</option>
-                          <option value="lukewarm">Lukewarm</option>
-                          <option value="cold">Cold</option>
-                        </select>
+                          options={[
+                            { value: "heater", label: "Heater" },
+                            { value: "lukewarm", label: "Lukewarm" },
+                            { value: "cold", label: "Cold" },
+                          ]}
+                        />
                       </form>
                     </td>
                     <td className="text-right font-mono">

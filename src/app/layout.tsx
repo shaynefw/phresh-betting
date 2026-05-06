@@ -21,7 +21,27 @@ export default function RootLayout({
           colorPrimary: "#22a8ff",
           colorBackground: "#0a0f1a",
           colorInputBackground: "#0d1422",
-          colorText: "#e6efff",
+          colorText: "#ffffff",
+          colorTextSecondary: "#cdd9f0",
+          colorTextOnPrimaryBackground: "#000000",
+          colorInputText: "#ffffff",
+        },
+        elements: {
+          headerTitle: { color: "#ffffff" },
+          headerSubtitle: { color: "#cdd9f0" },
+          formFieldLabel: { color: "#cdd9f0" },
+          dividerText: { color: "#cdd9f0" },
+          footerActionText: { color: "#cdd9f0" },
+          formButtonPrimary: {
+            backgroundColor: "#22a8ff",
+            color: "#000000",
+            "&:hover": { backgroundColor: "#3fb8ff" },
+          },
+          userPreviewMainIdentifier: { color: "#ffffff" },
+          userPreviewSecondaryIdentifier: { color: "#cdd9f0" },
+          userButtonPopoverActionButton: { color: "#ffffff" },
+          userButtonPopoverActionButtonText: { color: "#ffffff" },
+          userButtonPopoverFooter: { color: "#cdd9f0" },
         },
       }}
     >

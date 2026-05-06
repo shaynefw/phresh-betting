@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { auth } from "@clerk/nextjs/server";
+import { getUserId } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 async function ownsSystem(systemId: string): Promise<string | null> {
-  const { userId } = await auth();
+  const userId = await getUserId();
   if (!userId) return null;
   const sb = createAdminClient();
   const { data } = await sb

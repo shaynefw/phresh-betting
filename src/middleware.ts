@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
 const isPublicRoute = createRouteMatcher([
@@ -7,7 +7,11 @@ const isPublicRoute = createRouteMatcher([
   "/sign-up(.*)",
 ]);
 
-export default clerkMiddleware(async (auth, req) => {
+const PREVIEW = process.env.PREVIEW_MODE === "1";
+
+const previewMiddleware = (_req: NextRequest) => NextResponse.next();
+
+const realMiddleware = clerkMiddleware(async (auth, req) => {
   if (isPublicRoute(req)) return;
   const { userId } = await auth();
   if (!userId) {
@@ -16,6 +20,8 @@ export default clerkMiddleware(async (auth, req) => {
     return NextResponse.redirect(url);
   }
 });
+
+export default PREVIEW ? previewMiddleware : realMiddleware;
 
 export const config = {
   matcher: [

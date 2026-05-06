@@ -62,7 +62,7 @@ export default function Shell({ email, systems, activeSystemId, children }: Prop
             {activeSystem?.name ?? "—"}
           </span>
         </div>
-        <UserButton />
+        {email !== "preview@local.dev" && <UserButton />}
       </header>
 
       {/* mobile drawer */}
@@ -135,7 +135,7 @@ export default function Shell({ email, systems, activeSystemId, children }: Prop
           })}
         </nav>
         <div className="p-3 border-t border-border flex items-center gap-3">
-          <UserButton />
+          {email !== "preview@local.dev" && <UserButton />}
           <div className="text-xs text-ink-dim truncate">{email}</div>
         </div>
       </aside>
@@ -248,7 +248,7 @@ function DrawerContents({
         })}
       </nav>
       <div className="p-3 border-t border-border flex items-center gap-3">
-        <UserButton />
+        {email !== "preview@local.dev" && <UserButton />}
         <div className="text-xs text-ink-dim truncate">{email}</div>
       </div>
     </>

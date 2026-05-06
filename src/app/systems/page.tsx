@@ -2,13 +2,13 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import Link from "next/link";
-import { auth } from "@clerk/nextjs/server";
+import { getUserId } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { System } from "@/lib/types";
 
 async function createSystem(formData: FormData) {
   "use server";
-  const { userId } = await auth();
+  const userId = await getUserId();
   if (!userId) redirect("/sign-in");
   const name = String(formData.get("name") || "").trim();
   const description = String(formData.get("description") || "").trim();
@@ -38,7 +38,7 @@ async function createSystem(formData: FormData) {
 
 async function archiveSystem(formData: FormData) {
   "use server";
-  const { userId } = await auth();
+  const userId = await getUserId();
   if (!userId) return;
   const id = String(formData.get("id"));
   const sb = createAdminClient();
@@ -48,7 +48,7 @@ async function archiveSystem(formData: FormData) {
 
 async function deleteSystem(formData: FormData) {
   "use server";
-  const { userId } = await auth();
+  const userId = await getUserId();
   if (!userId) return;
   const id = String(formData.get("id"));
   const sb = createAdminClient();
@@ -57,7 +57,7 @@ async function deleteSystem(formData: FormData) {
 }
 
 export default async function SystemsPage() {
-  const { userId } = await auth();
+  const userId = await getUserId();
   if (!userId) redirect("/sign-in");
   const sb = createAdminClient();
   const { data } = await sb

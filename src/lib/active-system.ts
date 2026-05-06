@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { auth, currentUser } from "@clerk/nextjs/server";
+import { getUserId, getUserEmail } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { System } from "@/lib/types";
 
@@ -9,7 +9,7 @@ export async function loadShellContext(): Promise<{
   systems: System[];
   activeSystemId: string;
 } | null> {
-  const { userId } = await auth();
+  const userId = await getUserId();
   if (!userId) return null;
 
   const sb = createAdminClient();
@@ -26,8 +26,7 @@ export async function loadShellContext(): Promise<{
     active = list[0]?.id ?? "";
   }
 
-  const user = await currentUser();
-  const email = user?.emailAddresses?.[0]?.emailAddress ?? "";
+  const email = await getUserEmail();
 
   return { email, userId, systems: list, activeSystemId: active };
 }

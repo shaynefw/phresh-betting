@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { UserButton } from "@clerk/nextjs";
 import type { System } from "@/lib/types";
-import { LogOut, Settings2, BarChart3, BookOpen, Layers, Users } from "lucide-react";
+import { Settings2, BarChart3, BookOpen, Layers, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -18,15 +18,8 @@ export default function Shell({ email, systems, activeSystemId, children }: Prop
   const pathname = usePathname();
   const router = useRouter();
 
-  async function changeSystem(id: string) {
+  function changeSystem(id: string) {
     document.cookie = `active_system=${id}; path=/; max-age=${60 * 60 * 24 * 365}`;
-    router.refresh();
-  }
-
-  async function signOut() {
-    const sb = createClient();
-    await sb.auth.signOut();
-    router.push("/login");
     router.refresh();
   }
 
@@ -83,11 +76,9 @@ export default function Shell({ email, systems, activeSystemId, children }: Prop
             );
           })}
         </nav>
-        <div className="p-3 border-t border-border text-xs">
-          <div className="text-ink-dim truncate mb-2">{email}</div>
-          <button onClick={signOut} className="btn-ghost w-full">
-            <LogOut className="h-4 w-4" /> Sign out
-          </button>
+        <div className="p-3 border-t border-border flex items-center gap-3">
+          <UserButton />
+          <div className="text-xs text-ink-dim truncate">{email}</div>
         </div>
       </aside>
       <main className="flex-1 min-w-0">{children}</main>

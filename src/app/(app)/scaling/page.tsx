@@ -1,6 +1,6 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type { ScalingLogEntry } from "@/lib/types";
 import { fmtMoney, todayISO } from "@/lib/utils";
@@ -18,7 +18,7 @@ async function addScaling(formData: FormData) {
   const notes = String(formData.get("notes") || "").trim();
   if (!sysId || !effective_date || !unit_size_dollars) return;
 
-  const supabase = createClient();
+  const supabase = createAdminClient();
   await supabase.from("scaling_log_entries").insert({
     system_id: sysId,
     effective_date,
@@ -35,16 +35,16 @@ async function addScaling(formData: FormData) {
 async function deleteScaling(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
-  await createClient().from("scaling_log_entries").delete().eq("id", id);
+  await createAdminClient().from("scaling_log_entries").delete().eq("id", id);
   revalidatePath("/scaling");
   revalidatePath("/dashboard");
 }
 
 export default async function ScalingPage() {
   const ctx = await loadShellContext();
-  if (!ctx) redirect("/login");
+  if (!ctx) redirect("/sign-in");
   const sysId = ctx.activeSystemId;
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const { data } = await supabase
     .from("scaling_log_entries")
     .select("*")

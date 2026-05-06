@@ -1,7 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type {
   Capper,
@@ -22,7 +22,7 @@ async function deleteDay(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
   const capperId = String(formData.get("capper_id"));
-  await createClient().from("capper_day_entries").delete().eq("id", id);
+  await createAdminClient().from("capper_day_entries").delete().eq("id", id);
   revalidatePath(`/cappers/${capperId}`);
   revalidatePath("/dashboard");
   revalidatePath("/journal");
@@ -34,7 +34,7 @@ async function updateCapperMeta(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   const risk = Number(formData.get("base_risk") || 0);
   const notes = String(formData.get("notes") || "");
-  await createClient().from("cappers").update({
+  await createAdminClient().from("cappers").update({
     name,
     base_system_risk_units: risk,
     notes: notes || null,
@@ -44,21 +44,28 @@ async function updateCapperMeta(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export default async function CapperDetail({ params }: { params: { id: string } }) {
+export default async function CapperDetail({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
   const ctx = await loadShellContext();
-  if (!ctx) redirect("/login");
-  const supabase = createClient();
+  if (!ctx) redirect("/sign-in");
+  const supabase = createAdminClient();
   const sysId = ctx.activeSystemId;
 
   const [{ data: capper }, { data: days }, { data: bets }, { data: scaling }] = await Promise.all([
-    supabase.from("cappers").select("*").eq("id", params.id).single(),
-    supabase.from("capper_day_entries").select("*").eq("capper_id", params.id).order("date"),
-    supabase.from("capper_bet_entries").select("*").eq("capper_id", params.id).order("date").order("created_at"),
+    supabase.from("cappers").select("*").eq("id", id).single(),
+    supabase.from("capper_day_entries").select("*").eq("capper_id", id).order("date"),
+    supabase.from("capper_bet_entries").select("*").eq("capper_id", id).order("date").order("created_at"),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
   ]);
 
   if (!capper) notFound();
   const c = capper as Capper;
+  // ownership check: capper must belong to the active system the user owns
+  if (c.system_id !== sysId) notFound();
   const dayRows = (days ?? []) as CapperDayEntry[];
   const betRows = (bets ?? []) as CapperBetEntry[];
   const scalingRows = (scaling ?? []) as ScalingLogEntry[];

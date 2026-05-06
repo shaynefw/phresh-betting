@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type { Capper, CapperDayEntry, ScalingLogEntry } from "@/lib/types";
 import { activeScalingRow } from "@/lib/calc";
@@ -15,7 +15,7 @@ async function addCapper(formData: FormData) {
   const name = String(formData.get("name") || "").trim();
   const risk = Number(formData.get("base_risk") || 1);
   if (!name || !sysId) return;
-  const supabase = createClient();
+  const supabase = createAdminClient();
   await supabase.from("cappers").insert({
     system_id: sysId,
     name,
@@ -28,7 +28,7 @@ async function updatePhase(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
   const phase = String(formData.get("phase"));
-  await createClient().from("cappers").update({ current_phase: phase }).eq("id", id);
+  await createAdminClient().from("cappers").update({ current_phase: phase }).eq("id", id);
   revalidatePath("/cappers");
 }
 
@@ -36,36 +36,36 @@ async function updateChecklist(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
   const checklist = String(formData.get("checklist"));
-  await createClient().from("cappers").update({ checklist_status: checklist }).eq("id", id);
+  await createAdminClient().from("cappers").update({ checklist_status: checklist }).eq("id", id);
   revalidatePath("/cappers");
 }
 
 async function archiveCapper(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
-  await createClient().from("cappers").update({ is_archived: true, is_active: false }).eq("id", id);
+  await createAdminClient().from("cappers").update({ is_archived: true, is_active: false }).eq("id", id);
   revalidatePath("/cappers");
 }
 
 async function unarchiveCapper(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
-  await createClient().from("cappers").update({ is_archived: false, is_active: true }).eq("id", id);
+  await createAdminClient().from("cappers").update({ is_archived: false, is_active: true }).eq("id", id);
   revalidatePath("/cappers");
 }
 
 async function deleteCapper(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
-  await createClient().from("cappers").delete().eq("id", id);
+  await createAdminClient().from("cappers").delete().eq("id", id);
   revalidatePath("/cappers");
 }
 
 export default async function CappersPage() {
   const ctx = await loadShellContext();
-  if (!ctx) redirect("/login");
+  if (!ctx) redirect("/sign-in");
   const sysId = ctx.activeSystemId;
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const [{ data: cappers }, { data: scaling }, { data: dayRows }] = await Promise.all([
     supabase.from("cappers").select("*").eq("system_id", sysId)
       .order("sort_order").order("created_at"),

@@ -1,30 +1,27 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import Link from "next/link";
+import { auth } from "@clerk/nextjs/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { System } from "@/lib/types";
 
 async function createSystem(formData: FormData) {
   "use server";
+  const { userId } = await auth();
+  if (!userId) redirect("/sign-in");
   const name = String(formData.get("name") || "").trim();
   const description = String(formData.get("description") || "").trim();
   if (!name) return;
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return;
-
-  const { data, error } = await supabase
+  const sb = createAdminClient();
+  const { data, error } = await sb
     .from("systems")
-    .insert({ user_id: user.id, name, description: description || null })
+    .insert({ user_id: userId, name, description: description || null })
     .select("*")
     .single();
   if (error || !data) return;
 
-  // seed first scaling row at $1 if none provided — user can edit
-  await supabase.from("scaling_log_entries").insert({
+  await sb.from("scaling_log_entries").insert({
     system_id: data.id,
     effective_date: new Date().toISOString().slice(0, 10),
     starting_units_threshold: 0,
@@ -33,37 +30,40 @@ async function createSystem(formData: FormData) {
     notes: "Initial unit size",
   });
 
-  cookies().set("active_system", data.id, { path: "/" });
+  const cookieStore = await cookies();
+  cookieStore.set("active_system", data.id, { path: "/" });
   revalidatePath("/", "layout");
   redirect("/dashboard");
 }
 
 async function archiveSystem(formData: FormData) {
   "use server";
+  const { userId } = await auth();
+  if (!userId) return;
   const id = String(formData.get("id"));
-  const supabase = createClient();
-  await supabase.from("systems").update({ archived: true }).eq("id", id);
+  const sb = createAdminClient();
+  await sb.from("systems").update({ archived: true }).eq("id", id).eq("user_id", userId);
   revalidatePath("/systems");
 }
 
 async function deleteSystem(formData: FormData) {
   "use server";
+  const { userId } = await auth();
+  if (!userId) return;
   const id = String(formData.get("id"));
-  const supabase = createClient();
-  await supabase.from("systems").delete().eq("id", id);
+  const sb = createAdminClient();
+  await sb.from("systems").delete().eq("id", id).eq("user_id", userId);
   revalidatePath("/systems");
 }
 
 export default async function SystemsPage() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
-  const { data } = await supabase
+  const { userId } = await auth();
+  if (!userId) redirect("/sign-in");
+  const sb = createAdminClient();
+  const { data } = await sb
     .from("systems")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .order("created_at", { ascending: true });
   const systems = (data ?? []) as System[];
 

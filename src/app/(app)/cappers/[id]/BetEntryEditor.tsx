@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { addBet, deleteBet } from "../../_actions";
 import type { CapperBetEntry, CapperDayEntry } from "@/lib/types";
 import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
 import { Trash2, Plus } from "lucide-react";
@@ -22,13 +22,13 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
   const [result, setResult] = useState<"win" | "loss" | "void">("win");
   const [pnl, setPnl] = useState("");
   const [notes, setNotes] = useState("");
+  const [err, setErr] = useState<string | null>(null);
 
-  async function addBet(e: React.FormEvent) {
+  function onAdd(e: React.FormEvent) {
     e.preventDefault();
-    const supabase = createClient();
+    setErr(null);
     let amount_pnl = pnl === "" ? null : Number(pnl);
     if (amount_pnl == null && odds && wager) {
-      // auto-compute pnl from American odds
       const o = Number(odds);
       const w = Number(wager);
       if (result === "win") {
@@ -39,25 +39,32 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
         amount_pnl = 0;
       }
     }
-    await supabase.from("capper_bet_entries").insert({
-      capper_day_entry_id: day.id,
-      capper_id: capperId,
-      system_id: systemId,
-      date: day.date,
-      wager_amount: Number(wager || 0),
-      odds: odds ? Number(odds) : null,
-      bet_result: result,
-      amount_pnl: amount_pnl ?? 0,
-      notes: notes || null,
+    start(async () => {
+      const res = await addBet({
+        capperDayEntryId: day.id,
+        capperId,
+        systemId,
+        date: day.date,
+        wager_amount: Number(wager || 0),
+        odds: odds ? Number(odds) : null,
+        bet_result: result,
+        amount_pnl: amount_pnl ?? 0,
+        notes: notes || null,
+      });
+      if (res.error) {
+        setErr(res.error);
+        return;
+      }
+      setWager(""); setOdds(""); setPnl(""); setNotes(""); setResult("win");
+      router.refresh();
     });
-    setWager(""); setOdds(""); setPnl(""); setNotes(""); setResult("win");
-    start(() => router.refresh());
   }
 
-  async function delBet(id: string) {
-    const supabase = createClient();
-    await supabase.from("capper_bet_entries").delete().eq("id", id);
-    start(() => router.refresh());
+  function onDelete(id: string) {
+    start(async () => {
+      await deleteBet(id, systemId, capperId);
+      router.refresh();
+    });
   }
 
   return (
@@ -111,7 +118,7 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
                   <button
                     type="button"
                     className="btn-danger text-xs"
-                    onClick={() => delBet(b.id)}
+                    onClick={() => onDelete(b.id)}
                     disabled={pending}
                   >
                     <Trash2 className="h-3 w-3" />
@@ -123,7 +130,7 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
         </table>
       </div>
 
-      <form onSubmit={addBet} className="grid md:grid-cols-6 gap-2 items-end">
+      <form onSubmit={onAdd} className="grid md:grid-cols-6 gap-2 items-end">
         <div>
           <label className="label">Wager</label>
           <input className="input" type="number" step="0.01" required value={wager} onChange={(e) => setWager(e.target.value)} />
@@ -148,6 +155,7 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
           <label className="label">Notes</label>
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
+        {err && <p className="text-bad text-sm md:col-span-6">{err}</p>}
         <div className="md:col-span-6">
           <button className="btn-primary" disabled={pending}>
             <Plus className="h-4 w-4" /> Add bet

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type {
   Capper,
@@ -20,7 +20,7 @@ async function updateSystem(formData: FormData) {
   const description = String(formData.get("description") || "");
   const notes = String(formData.get("notes") || "");
   if (!name) return;
-  await createClient().from("systems").update({
+  await createAdminClient().from("systems").update({
     name,
     description: description || null,
     notes: notes || null,
@@ -31,9 +31,9 @@ async function updateSystem(formData: FormData) {
 
 export default async function SettingsPage() {
   const ctx = await loadShellContext();
-  if (!ctx) redirect("/login");
+  if (!ctx) redirect("/sign-in");
   const sysId = ctx.activeSystemId;
-  const supabase = createClient();
+  const supabase = createAdminClient();
   const [{ data: sys }, { data: scaling }, { data: cappers }, { data: days }, { data: bets }] =
     await Promise.all([
       supabase.from("systems").select("*").eq("id", sysId).single(),

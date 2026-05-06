@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { upsertCapperDay } from "../../_actions";
 import { todayISO } from "@/lib/utils";
 
 interface Props {
@@ -23,46 +23,28 @@ export default function DayEntryForm({ capperId, systemId, unitSize }: Props) {
   const [losses, setLosses] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
-  async function submit(e: React.FormEvent) {
+  function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    const supabase = createClient();
-    if (mode === "daily_totals") {
-      const { error } = await supabase.from("capper_day_entries").upsert(
-        {
-          capper_id: capperId,
-          system_id: systemId,
-          date,
-          entry_mode: "daily_totals",
-          wager_total: Number(wager || 0),
-          bet_count: Number(bets || 0),
-          daily_amount_pnl: Number(pnl || 0),
-          wins: Number(wins || 0),
-          losses: Number(losses || 0),
-        },
-        { onConflict: "capper_id,date" },
-      );
-      if (error) return setErr(error.message);
-    } else {
-      // upsert empty day in bet-level mode; bets added below
-      const { error } = await supabase.from("capper_day_entries").upsert(
-        {
-          capper_id: capperId,
-          system_id: systemId,
-          date,
-          entry_mode: "bet_level",
-          wager_total: 0,
-          bet_count: 0,
-          daily_amount_pnl: 0,
-          wins: 0,
-          losses: 0,
-        },
-        { onConflict: "capper_id,date" },
-      );
-      if (error) return setErr(error.message);
-    }
-    setWager(""); setBets(""); setPnl(""); setWins(""); setLosses("");
-    start(() => router.refresh());
+    start(async () => {
+      const res = await upsertCapperDay({
+        capperId,
+        systemId,
+        date,
+        entry_mode: mode,
+        wager_total: mode === "daily_totals" ? Number(wager || 0) : 0,
+        bet_count: mode === "daily_totals" ? Number(bets || 0) : 0,
+        daily_amount_pnl: mode === "daily_totals" ? Number(pnl || 0) : 0,
+        wins: mode === "daily_totals" ? Number(wins || 0) : 0,
+        losses: mode === "daily_totals" ? Number(losses || 0) : 0,
+      });
+      if (res.error) {
+        setErr(res.error);
+        return;
+      }
+      setWager(""); setBets(""); setPnl(""); setWins(""); setLosses("");
+      router.refresh();
+    });
   }
 
   return (
@@ -101,51 +83,29 @@ export default function DayEntryForm({ capperId, systemId, unitSize }: Props) {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="label">Wager total ($)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={wager}
-                  onChange={(e) => setWager(e.target.value)}
-                  className="input"
-                />
+                <input type="number" step="0.01" value={wager}
+                  onChange={(e) => setWager(e.target.value)} className="input" />
               </div>
               <div>
                 <label className="label"># bets</label>
-                <input
-                  type="number"
-                  value={bets}
-                  onChange={(e) => setBets(e.target.value)}
-                  className="input"
-                />
+                <input type="number" value={bets}
+                  onChange={(e) => setBets(e.target.value)} className="input" />
               </div>
               <div>
                 <label className="label">Daily $ PnL</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={pnl}
-                  onChange={(e) => setPnl(e.target.value)}
-                  className="input"
-                />
+                <input type="number" step="0.01" value={pnl}
+                  onChange={(e) => setPnl(e.target.value)} className="input" />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="label">Wins</label>
-                  <input
-                    type="number"
-                    value={wins}
-                    onChange={(e) => setWins(e.target.value)}
-                    className="input"
-                  />
+                  <input type="number" value={wins}
+                    onChange={(e) => setWins(e.target.value)} className="input" />
                 </div>
                 <div>
                   <label className="label">Losses</label>
-                  <input
-                    type="number"
-                    value={losses}
-                    onChange={(e) => setLosses(e.target.value)}
-                    className="input"
-                  />
+                  <input type="number" value={losses}
+                    onChange={(e) => setLosses(e.target.value)} className="input" />
                 </div>
               </div>
             </div>

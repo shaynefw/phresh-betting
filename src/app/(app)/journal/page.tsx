@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type { JournalDayEntry } from "@/lib/types";
 import { fmtMoney, fmtPct, fmtUnits, pctClass } from "@/lib/utils";
@@ -10,15 +10,16 @@ export const dynamic = "force-dynamic";
 export default async function JournalPage({
   searchParams,
 }: {
-  searchParams: { from?: string; to?: string };
+  searchParams: Promise<{ from?: string; to?: string }>;
 }) {
+  const sp = await searchParams;
   const ctx = await loadShellContext();
-  if (!ctx) redirect("/login");
+  if (!ctx) redirect("/sign-in");
   const sysId = ctx.activeSystemId;
-  const supabase = createClient();
+  const supabase = createAdminClient();
   let q = supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date", { ascending: false });
-  if (searchParams.from) q = q.gte("date", searchParams.from);
-  if (searchParams.to) q = q.lte("date", searchParams.to);
+  if (sp.from) q = q.gte("date", sp.from);
+  if (sp.to) q = q.lte("date", sp.to);
   const { data } = await q;
   const rows = (data ?? []) as JournalDayEntry[];
 
@@ -40,11 +41,11 @@ export default async function JournalPage({
       <form className="panel p-4 grid md:grid-cols-4 gap-3 items-end">
         <div>
           <label className="label">From</label>
-          <input name="from" type="date" defaultValue={searchParams.from || ""} className="input" />
+          <input name="from" type="date" defaultValue={sp.from || ""} className="input" />
         </div>
         <div>
           <label className="label">To</label>
-          <input name="to" type="date" defaultValue={searchParams.to || ""} className="input" />
+          <input name="to" type="date" defaultValue={sp.to || ""} className="input" />
         </div>
         <div>
           <button className="btn-primary">Filter</button>

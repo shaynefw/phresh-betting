@@ -1,13 +1,10 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 
 export default async function Landing() {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (user) redirect("/dashboard");
+  const { userId } = await auth();
+  if (userId) redirect("/dashboard");
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-6">
@@ -23,12 +20,8 @@ export default async function Landing() {
           synced daily journal — built for serious operators.
         </p>
         <div className="flex gap-3 justify-center">
-          <Link href="/signup" className="btn-primary">
-            Create account
-          </Link>
-          <Link href="/login" className="btn-ghost">
-            Sign in
-          </Link>
+          <Link href="/sign-up" className="btn-primary">Create account</Link>
+          <Link href="/sign-in" className="btn-ghost">Sign in</Link>
         </div>
       </div>
     </main>

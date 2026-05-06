@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import {
   activeScalingRow,
@@ -33,11 +33,12 @@ export const dynamic = "force-dynamic";
 export default async function Dashboard({
   searchParams,
 }: {
-  searchParams: { date?: string };
+  searchParams: Promise<{ date?: string }>;
 }) {
+  const sp = await searchParams;
   const ctx = await loadShellContext();
-  if (!ctx) redirect("/login");
-  const supabase = createClient();
+  if (!ctx) redirect("/sign-in");
+  const supabase = createAdminClient();
   const sysId = ctx.activeSystemId;
   if (!sysId) redirect("/systems?first=1");
 
@@ -56,7 +57,7 @@ export default async function Dashboard({
   const capperRows = (cappers ?? []) as Capper[];
   const allDayRows = (dayRows ?? []) as CapperDayEntry[];
 
-  const focusDate = searchParams.date || journalRows.at(-1)?.date || todayISO();
+  const focusDate = sp.date || journalRows.at(-1)?.date || todayISO();
   const dayJournal = journalRows.find((j) => j.date === focusDate);
   const summary = summarizeJournal(journalRows);
   const activeRow = activeScalingRow(scalingRows, focusDate);

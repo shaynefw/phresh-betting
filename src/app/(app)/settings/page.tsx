@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type {
   Capper,
+  CapperBaseline,
   CapperBetEntry,
   CapperDayEntry,
   ScalingLogEntry,
@@ -34,24 +35,32 @@ export default async function SettingsPage() {
   if (!ctx) redirect("/sign-in");
   const sysId = ctx.activeSystemId;
   const supabase = createAdminClient();
-  const [{ data: sys }, { data: scaling }, { data: cappers }, { data: days }, { data: bets }] =
-    await Promise.all([
-      supabase.from("systems").select("*").eq("id", sysId).single(),
-      supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
-      supabase.from("cappers").select("*").eq("system_id", sysId).order("created_at"),
-      supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
-      supabase.from("capper_bet_entries").select("*").eq("system_id", sysId).order("date"),
-    ]);
+  const [
+    { data: sys },
+    { data: scaling },
+    { data: cappers },
+    { data: days },
+    { data: bets },
+    { data: baselines },
+  ] = await Promise.all([
+    supabase.from("systems").select("*").eq("id", sysId).single(),
+    supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
+    supabase.from("cappers").select("*").eq("system_id", sysId).order("created_at"),
+    supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
+    supabase.from("capper_bet_entries").select("*").eq("system_id", sysId).order("date"),
+    supabase.from("capper_baselines").select("*").eq("system_id", sysId),
+  ]);
 
   const system = sys as System;
   const exportPayload = {
-    version: 1,
+    version: 2,
     exported_at: new Date().toISOString(),
     system,
     scaling: (scaling ?? []) as ScalingLogEntry[],
     cappers: (cappers ?? []) as Capper[],
     capper_days: (days ?? []) as CapperDayEntry[],
     capper_bets: (bets ?? []) as CapperBetEntry[],
+    capper_baselines: (baselines ?? []) as CapperBaseline[],
   };
 
   return (

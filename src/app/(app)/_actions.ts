@@ -212,6 +212,30 @@ interface BackupPayload {
     units_risk_multiplier?: number | null;
     notes?: string | null;
   }>;
+  capper_baselines?: Array<{
+    capper_id: string;
+    total_betting_days: number;
+    total_bets: number;
+    total_risk: number;
+    cumulative_amount_pnl: number;
+    cumulative_units_pnl: number;
+    wins: number;
+    losses: number;
+    green_day_count: number;
+    red_day_count: number;
+    green_day_roi_cumulative: number;
+    red_day_roi_cumulative: number;
+    running_roi_percent: number;
+    win_rate_percent: number;
+    green_day_avg_roi: number;
+    red_day_avg_roi: number;
+    green_day_probability: number;
+    current_streak_value: number;
+    current_streak_type: "green" | "red" | "neutral_hold";
+    max_win_streak: number;
+    max_loss_streak: number;
+    notes?: string | null;
+  }>;
 }
 
 export async function importBackup(systemId: string, payloadJson: string) {
@@ -232,6 +256,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
   await sb.from("scaling_log_entries").delete().eq("system_id", systemId);
   await sb.from("capper_bet_entries").delete().eq("system_id", systemId);
   await sb.from("capper_day_entries").delete().eq("system_id", systemId);
+  await sb.from("capper_baselines").delete().eq("system_id", systemId);
   await sb.from("cappers").delete().eq("system_id", systemId);
 
   const capperIdMap = new Map<string, string>();
@@ -313,6 +338,42 @@ export async function importBackup(systemId: string, payloadJson: string) {
     if (error) return { error: error.message };
   }
 
+  // capper baselines (v2 backups). Each row keyed by old capper_id; remap.
+  const baselineRows: Array<Record<string, unknown>> = [];
+  for (const bl of data.capper_baselines ?? []) {
+    const newCapperId = capperIdMap.get(bl.capper_id);
+    if (!newCapperId) continue;
+    baselineRows.push({
+      capper_id: newCapperId,
+      system_id: systemId,
+      total_betting_days: bl.total_betting_days,
+      total_bets: bl.total_bets,
+      total_risk: bl.total_risk,
+      cumulative_amount_pnl: bl.cumulative_amount_pnl,
+      cumulative_units_pnl: bl.cumulative_units_pnl,
+      wins: bl.wins,
+      losses: bl.losses,
+      green_day_count: bl.green_day_count,
+      red_day_count: bl.red_day_count,
+      green_day_roi_cumulative: bl.green_day_roi_cumulative,
+      red_day_roi_cumulative: bl.red_day_roi_cumulative,
+      running_roi_percent: bl.running_roi_percent,
+      win_rate_percent: bl.win_rate_percent,
+      green_day_avg_roi: bl.green_day_avg_roi,
+      red_day_avg_roi: bl.red_day_avg_roi,
+      green_day_probability: bl.green_day_probability,
+      current_streak_value: bl.current_streak_value,
+      current_streak_type: bl.current_streak_type,
+      max_win_streak: bl.max_win_streak,
+      max_loss_streak: bl.max_loss_streak,
+      notes: bl.notes ?? null,
+    });
+  }
+  if (baselineRows.length) {
+    const { error } = await sb.from("capper_baselines").insert(baselineRows);
+    if (error) return { error: error.message };
+  }
+
   revalidatePath("/dashboard");
   revalidatePath("/journal");
   revalidatePath("/cappers");
@@ -324,6 +385,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
       cappers: capperIdMap.size,
       days: dayIdMap.size,
       bets: betRows.length,
+      baselines: baselineRows.length,
     },
   };
 }

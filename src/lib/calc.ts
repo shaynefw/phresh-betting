@@ -193,6 +193,8 @@ export function summarizeJournal(journal: JournalDayEntry[]): {
   greenProbability: number;
   winRecord: { w: number; l: number; rate: number };
   streak: { type: "green" | "red" | "neutral_hold"; value: number };
+  maxWinStreak: number;
+  maxLossStreak: number;
 } {
   if (journal.length === 0) {
     return {
@@ -209,6 +211,8 @@ export function summarizeJournal(journal: JournalDayEntry[]): {
       greenProbability: 0,
       winRecord: { w: 0, l: 0, rate: 0 },
       streak: { type: "neutral_hold", value: 0 },
+      maxWinStreak: 0,
+      maxLossStreak: 0,
     };
   }
   const last = journal[journal.length - 1];
@@ -233,5 +237,7 @@ export function summarizeJournal(journal: JournalDayEntry[]): {
           : (last.record_wins / (last.record_wins + last.record_losses)) * 100,
     },
     streak: { type: last.current_streak_type, value: last.current_streak_value },
+    maxWinStreak: last.max_win_streak,
+    maxLossStreak: last.max_loss_streak,
   };
 }

@@ -16,14 +16,16 @@ import {
 } from "@/lib/utils";
 import type {
   Capper,
+  CapperBaseline,
   CapperDayEntry,
   JournalDayEntry,
   ScalingLogEntry,
   System,
 } from "@/lib/types";
-import Kpi from "@/components/Kpi";
+import { aggregateBaselines, combineWithJournal } from "@/lib/baseline";
 import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
+import PerformanceSummary from "@/components/PerformanceSummary";
 import {
   TrendingUp, TrendingDown, Flame, Snowflake, Activity, Target,
 } from "lucide-react";
@@ -42,49 +44,92 @@ export default async function Dashboard({
   const sysId = ctx.activeSystemId;
   if (!sysId) redirect("/systems?first=1");
 
-  const [{ data: sys }, { data: journal }, { data: scaling }, { data: cappers }, { data: dayRows }] =
-    await Promise.all([
-      supabase.from("systems").select("*").eq("id", sysId).single(),
-      supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date"),
-      supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
-      supabase.from("cappers").select("*").eq("system_id", sysId).order("sort_order").order("created_at"),
-      supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
-    ]);
+  const [
+    { data: sys },
+    { data: journal },
+    { data: scaling },
+    { data: cappers },
+    { data: dayRows },
+    { data: baselineRows },
+  ] = await Promise.all([
+    supabase.from("systems").select("*").eq("id", sysId).single(),
+    supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date"),
+    supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
+    supabase.from("cappers").select("*").eq("system_id", sysId).order("sort_order").order("created_at"),
+    supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
+    supabase.from("capper_baselines").select("*").eq("system_id", sysId),
+  ]);
 
   const system = sys as System;
   const journalRows = (journal ?? []) as JournalDayEntry[];
   const scalingRows = (scaling ?? []) as ScalingLogEntry[];
   const capperRows = (cappers ?? []) as Capper[];
   const allDayRows = (dayRows ?? []) as CapperDayEntry[];
+  const baselines = (baselineRows ?? []) as CapperBaseline[];
+
+  // restrict baselines to non-archived cappers (archived shouldn't count toward live totals)
+  const activeCapperIds = new Set(capperRows.filter((c) => !c.is_archived).map((c) => c.id));
+  const activeBaselines = baselines.filter((b) => activeCapperIds.has(b.capper_id));
+  const baselineByCapper = new Map<string, CapperBaseline>();
+  for (const b of activeBaselines) baselineByCapper.set(b.capper_id, b);
+  const systemBaseline = aggregateBaselines(activeBaselines, sysId);
 
   const focusDate = sp.date || journalRows.at(-1)?.date || todayISO();
   const dayJournal = journalRows.find((j) => j.date === focusDate);
-  const summary = summarizeJournal(journalRows);
+  const journalSummary = summarizeJournal(journalRows);
+  const summary = combineWithJournal(systemBaseline, journalSummary);
   const activeRow = activeScalingRow(scalingRows, focusDate);
+  // scaling progress now reflects baseline-included cumulative units
   const scaleState = computeScalingState(summary.cumulativeUnits, activeRow);
 
-  // chart data
-  const chartData = journalRows.map((j, i) => {
-    // simple linear trendline from first to last point
-    const first = journalRows[0]?.cumulative_units_pnl ?? 0;
-    const last = journalRows[journalRows.length - 1]?.cumulative_units_pnl ?? 0;
-    const t = journalRows.length > 1 ? i / (journalRows.length - 1) : 0;
-    return {
-      day: i + 1,
+  // chart data — anchor at sum-of-baseline-units, then journal days add on top
+  const baselineUnits = Number(systemBaseline?.cumulative_units_pnl ?? 0);
+  const baselineDayOffset = systemBaseline?.total_betting_days ?? 0;
+  const chartData: { day: number; date: string; cumulativeUnits: number; trendline: number | null }[] = [];
+  if (systemBaseline) {
+    chartData.push({
+      day: baselineDayOffset,
+      date: "baseline",
+      cumulativeUnits: baselineUnits,
+      trendline: null,
+    });
+  }
+  journalRows.forEach((j, i) => {
+    chartData.push({
+      day: baselineDayOffset + i + 1,
       date: j.date,
-      cumulativeUnits: Number(j.cumulative_units_pnl),
-      trendline: first + t * (last - first),
-    };
+      cumulativeUnits: baselineUnits + Number(j.cumulative_units_pnl),
+      trendline: null,
+    });
   });
+  // simple trendline from first→last
+  if (chartData.length > 1) {
+    const first = chartData[0].cumulativeUnits;
+    const last = chartData[chartData.length - 1].cumulativeUnits;
+    chartData.forEach((p, i) => {
+      const t = i / (chartData.length - 1);
+      p.trendline = first + t * (last - first);
+    });
+  }
 
   // capper-on-the-day map
   const onDayByCapper = new Map<string, CapperDayEntry>();
   allDayRows.filter((d) => d.date === focusDate).forEach((d) => {
     onDayByCapper.set(d.capper_id, d);
   });
+  // cumulative units per capper INCLUDING that capper's baseline
   const cumByCapper = new Map<string, number>();
   for (const d of allDayRows) {
-    cumByCapper.set(d.capper_id, Number(d.cumulative_units_pnl));
+    const baseUnits = Number(baselineByCapper.get(d.capper_id)?.cumulative_units_pnl ?? 0);
+    cumByCapper.set(d.capper_id, baseUnits + Number(d.cumulative_units_pnl));
+  }
+  // include baseline-only cappers (no tracked days yet)
+  for (const c of capperRows) {
+    if (c.is_archived) continue;
+    if (!cumByCapper.has(c.id)) {
+      const b = baselineByCapper.get(c.id);
+      cumByCapper.set(c.id, Number(b?.cumulative_units_pnl ?? 0));
+    }
   }
 
   return (
@@ -127,28 +172,28 @@ export default async function Dashboard({
             <div
               className={
                 "kpi-value font-mono " +
-                (summary.streak.type === "green"
+                (summary.currentStreakType === "green"
                   ? "text-good"
-                  : summary.streak.type === "red"
+                  : summary.currentStreakType === "red"
                     ? "text-bad"
                     : "text-ink-dim")
               }
             >
-              {summary.streak.value}
+              {summary.currentStreakValue}
             </div>
             <div
               className={
                 "h-8 w-8 rounded grid place-items-center " +
-                (summary.streak.type === "green"
+                (summary.currentStreakType === "green"
                   ? "bg-good/15 text-good"
-                  : summary.streak.type === "red"
+                  : summary.currentStreakType === "red"
                     ? "bg-bad/15 text-bad"
                     : "bg-muted/15 text-ink-dim")
               }
             >
-              {summary.streak.type === "green" ? (
+              {summary.currentStreakType === "green" ? (
                 <TrendingUp className="h-4 w-4" />
-              ) : summary.streak.type === "red" ? (
+              ) : summary.currentStreakType === "red" ? (
                 <TrendingDown className="h-4 w-4" />
               ) : (
                 <Activity className="h-4 w-4" />
@@ -193,7 +238,14 @@ export default async function Dashboard({
       <section className="panel p-5">
         <div className="flex items-center justify-between mb-2">
           <div>
-            <div className="kpi-label">Cumulative Units Over Time</div>
+            <div className="kpi-label flex items-center gap-2">
+              Cumulative Units Over Time
+              {systemBaseline && (
+                <span className="pill-info">
+                  starts at baseline {fmtUnits(baselineUnits)}
+                </span>
+              )}
+            </div>
             <div className="text-2xl font-bold font-mono text-accent mt-0.5">
               {fmtUnits(summary.cumulativeUnits)}
             </div>
@@ -216,50 +268,28 @@ export default async function Dashboard({
 
       {/* performance summary */}
       <section className="grid lg:grid-cols-2 gap-4">
-        <div className="panel p-3 md:p-5">
-          <h3 className="kpi-label mb-3">Performance Summary</h3>
-          <div className="grid grid-cols-2 gap-y-2 text-sm">
-            <Row label="Total # of betting days" value={summary.totalDays} />
-            <Row
-              label="Cumulative ($) Profit"
-              value={fmtMoney(summary.cumulativeAmount, { sign: true })}
-              tone={summary.cumulativeAmount}
-            />
-            <Row label="Total # of bets" value={summary.totalBets} />
-            <Row
-              label="Win Rate"
-              value={`${summary.winRecord.w}-${summary.winRecord.l} (${summary.winRecord.rate.toFixed(0)}%)`}
-            />
-            <Row
-              label="Total Risk"
-              value={fmtMoney(summary.totalRisk)}
-            />
-            <Row
-              label="# Green Days (Avg ROI)"
-              tone={1}
-              value={`${summary.greenDays} (${fmtPct(summary.greenAvgRoi)})`}
-            />
-            <Row
-              label="ROI"
-              tone={summary.runningRoi}
-              value={fmtPct(summary.runningRoi)}
-            />
-            <Row
-              label="# Red Days (Avg ROI)"
-              tone={-1}
-              value={`${summary.redDays} (${fmtPct(summary.redAvgRoi)})`}
-            />
-            <Row
-              label="Cumulative Units"
-              tone={summary.cumulativeUnits}
-              value={fmtUnits(summary.cumulativeUnits)}
-            />
-            <Row
-              label="Green Day Probability"
-              value={`${summary.greenProbability.toFixed(0)}%`}
-            />
-          </div>
-        </div>
+        <PerformanceSummary
+          title={systemBaseline ? "Combined Performance Summary" : "Performance Summary"}
+          badge={systemBaseline ? <span className="pill-info">baselines + tracked</span> : null}
+          totalDays={summary.totalDays}
+          totalBets={summary.totalBets}
+          totalRisk={summary.totalRisk}
+          cumulativeAmount={summary.cumulativeAmount}
+          cumulativeUnits={summary.cumulativeUnits}
+          runningRoi={summary.runningRoi}
+          winRate={summary.winRate}
+          wins={summary.wins}
+          losses={summary.losses}
+          greenDays={summary.greenDays}
+          redDays={summary.redDays}
+          greenAvgRoi={summary.greenAvgRoi}
+          redAvgRoi={summary.redAvgRoi}
+          greenProbability={summary.greenProbability}
+          currentStreakType={summary.currentStreakType}
+          currentStreakValue={summary.currentStreakValue}
+          maxWinStreak={summary.maxWinStreak}
+          maxLossStreak={summary.maxLossStreak}
+        />
 
         <div className="panel p-3 md:p-5">
           <h3 className="kpi-label mb-3">Daily Summary — {focusDate}</h3>
@@ -350,31 +380,6 @@ export default async function Dashboard({
         </div>
       </section>
     </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: React.ReactNode;
-  tone?: number;
-}) {
-  const cls =
-    typeof tone === "number"
-      ? tone > 0
-        ? "text-good"
-        : tone < 0
-          ? "text-bad"
-          : ""
-      : "";
-  return (
-    <>
-      <div className="text-ink-dim">{label}</div>
-      <div className={`text-right font-mono ${cls}`}>{value}</div>
-    </>
   );
 }
 

@@ -11,6 +11,115 @@ import type { CapperBaseline, CapperDayEntry, StreakType } from "./types";
 import { rollupCapperDays, type CapperRollupSummary } from "./calc";
 import { safeDiv } from "./utils";
 
+/**
+ * Collapse multiple capper baselines into a single system-level baseline.
+ * Counters add. Streaks: max-streaks take the max; current streak gets
+ * "neutral_hold" (a system isn't really on a single streak across cappers).
+ * Ratios are not stored — recompute from totals when blending.
+ */
+export function aggregateBaselines(
+  rows: CapperBaseline[],
+  systemId: string,
+): CapperBaseline | null {
+  if (rows.length === 0) return null;
+  const sum = (k: keyof CapperBaseline) =>
+    rows.reduce((s, r) => s + Number(r[k] ?? 0), 0);
+  const max = (k: keyof CapperBaseline) =>
+    rows.reduce((m, r) => Math.max(m, Number(r[k] ?? 0)), 0);
+  return {
+    capper_id: "_system_aggregate",
+    system_id: systemId,
+    total_betting_days: sum("total_betting_days"),
+    total_bets: sum("total_bets"),
+    total_risk: sum("total_risk"),
+    cumulative_amount_pnl: sum("cumulative_amount_pnl"),
+    cumulative_units_pnl: sum("cumulative_units_pnl"),
+    wins: sum("wins"),
+    losses: sum("losses"),
+    green_day_count: sum("green_day_count"),
+    red_day_count: sum("red_day_count"),
+    green_day_roi_cumulative: sum("green_day_roi_cumulative"),
+    red_day_roi_cumulative: sum("red_day_roi_cumulative"),
+    running_roi_percent: 0, // recomputed on blend
+    win_rate_percent: 0,
+    green_day_avg_roi: 0,
+    red_day_avg_roi: 0,
+    green_day_probability: 0,
+    current_streak_value: 0,
+    current_streak_type: "neutral_hold",
+    max_win_streak: max("max_win_streak"),
+    max_loss_streak: max("max_loss_streak"),
+    notes: null,
+  };
+}
+
+/**
+ * Blend a baseline with a journal summary (system-level rollup).
+ * Journal already has tracked numbers; baseline adds historical totals.
+ */
+export function combineWithJournal(
+  baseline: CapperBaseline | null,
+  journal: {
+    cumulativeUnits: number;
+    cumulativeAmount: number;
+    totalDays: number;
+    totalBets: number;
+    totalRisk: number;
+    runningRoi: number;
+    greenDays: number;
+    redDays: number;
+    greenAvgRoi: number;
+    redAvgRoi: number;
+    greenProbability: number;
+    winRecord: { w: number; l: number; rate: number };
+    streak: { type: StreakType; value: number };
+    maxWinStreak?: number;
+    maxLossStreak?: number;
+  },
+): CombinedSummary {
+  const totalDays = (baseline?.total_betting_days ?? 0) + journal.totalDays;
+  const totalBets = (baseline?.total_bets ?? 0) + journal.totalBets;
+  const totalRisk = Number(baseline?.total_risk ?? 0) + journal.totalRisk;
+  const cumulativeAmount =
+    Number(baseline?.cumulative_amount_pnl ?? 0) + journal.cumulativeAmount;
+  const cumulativeUnits =
+    Number(baseline?.cumulative_units_pnl ?? 0) + journal.cumulativeUnits;
+  const wins = (baseline?.wins ?? 0) + journal.winRecord.w;
+  const losses = (baseline?.losses ?? 0) + journal.winRecord.l;
+  const greenDays = (baseline?.green_day_count ?? 0) + journal.greenDays;
+  const redDays = (baseline?.red_day_count ?? 0) + journal.redDays;
+  const greenRoiCum =
+    Number(baseline?.green_day_roi_cumulative ?? 0) +
+    journal.greenAvgRoi * journal.greenDays;
+  const redRoiCum =
+    Number(baseline?.red_day_roi_cumulative ?? 0) +
+    journal.redAvgRoi * journal.redDays;
+  return {
+    totalDays,
+    totalBets,
+    totalRisk,
+    cumulativeAmount,
+    cumulativeUnits,
+    wins,
+    losses,
+    greenDays,
+    redDays,
+    greenRoiCum,
+    redRoiCum,
+    runningRoi: safeDiv(cumulativeAmount, totalRisk) * 100,
+    winRate: wins + losses === 0 ? 0 : (wins / (wins + losses)) * 100,
+    greenAvgRoi: greenDays === 0 ? 0 : greenRoiCum / greenDays,
+    redAvgRoi: redDays === 0 ? 0 : redRoiCum / redDays,
+    greenProbability:
+      greenDays + redDays === 0 ? 0 : (greenDays / (greenDays + redDays)) * 100,
+    // Streak: journal has the live one, which is what matters; baseline streak isn't carried at system level
+    currentStreakType: journal.streak.type,
+    currentStreakValue: journal.streak.value,
+    maxWinStreak: Math.max(baseline?.max_win_streak ?? 0, journal.maxWinStreak ?? 0),
+    maxLossStreak: Math.max(baseline?.max_loss_streak ?? 0, journal.maxLossStreak ?? 0),
+  };
+}
+
 export interface CombinedSummary {
   totalDays: number;
   totalBets: number;

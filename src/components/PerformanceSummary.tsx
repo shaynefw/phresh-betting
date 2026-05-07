@@ -16,6 +16,8 @@ interface Props {
   redDays: number;
   greenAvgRoi: number;
   redAvgRoi: number;
+  greenRoiCum: number;
+  redRoiCum: number;
   greenProbability: number;
   currentStreakType: "green" | "red" | "neutral_hold";
   currentStreakValue: number;
@@ -63,8 +65,18 @@ export default function PerformanceSummary(p: Props) {
           value={fmtUnits(p.cumulativeUnits)}
         />
         <Row
+          label="Green Day ROI Cumulative"
+          tone={1}
+          value={fmtPct(p.greenRoiCum)}
+        />
+        <Row
           label="Green Day Probability"
           value={`${p.greenProbability.toFixed(0)}%`}
+        />
+        <Row
+          label="Red Day ROI Cumulative"
+          tone={-1}
+          value={fmtPct(p.redRoiCum)}
         />
         <Row label="Max Win Streak" tone={1} value={p.maxWinStreak} />
         <Row label="Max Loss Streak" tone={-1} value={p.maxLossStreak} />

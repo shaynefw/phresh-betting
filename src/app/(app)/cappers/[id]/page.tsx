@@ -181,6 +181,8 @@ export default async function CapperDetail({
           redDays={combined.redDays}
           greenAvgRoi={combined.greenAvgRoi}
           redAvgRoi={combined.redAvgRoi}
+          greenRoiCum={combined.greenRoiCum}
+          redRoiCum={combined.redRoiCum}
           greenProbability={combined.greenProbability}
           currentStreakType={combined.currentStreakType}
           currentStreakValue={combined.currentStreakValue}

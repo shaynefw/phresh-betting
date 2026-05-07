@@ -317,6 +317,8 @@ export default async function Dashboard({
           redDays={summary.redDays}
           greenAvgRoi={isoGreenAvg}
           redAvgRoi={isoRedAvg}
+          greenRoiCum={isoGreenRoiCum}
+          redRoiCum={isoRedRoiCum}
           greenProbability={summary.greenProbability}
           currentStreakType={summary.currentStreakType}
           currentStreakValue={summary.currentStreakValue}

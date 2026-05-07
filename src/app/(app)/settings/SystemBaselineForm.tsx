@@ -3,9 +3,10 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { upsertSystemBaseline, clearSystemBaseline } from "../_actions";
-import type { CapperBaseline, SystemBaseline } from "@/lib/types";
+import type { BaselineStreakEntry, CapperBaseline, SystemBaseline } from "@/lib/types";
 import { Save, Trash2 } from "lucide-react";
 import { fmtMoney, fmtPct, fmtUnits } from "@/lib/utils";
+import StreakEntriesEditor from "@/components/StreakEntriesEditor";
 
 interface Props {
   systemId: string;
@@ -72,6 +73,9 @@ export default function SystemBaselineForm({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [form, setForm] = useState<FormState>(() => init(systemBaseline));
+  const [streaks, setStreaks] = useState<BaselineStreakEntry[]>(
+    systemBaseline?.streak_breakdown ?? [],
+  );
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -158,6 +162,13 @@ export default function SystemBaselineForm({
         green_day_probability: Number(form.green_day_probability || 0),
         max_win_streak: Math.round(Number(form.max_win_streak || 0)),
         max_loss_streak: Math.round(Number(form.max_loss_streak || 0)),
+        streak_breakdown: streaks
+          .filter((e) => e.length > 0 && e.count > 0)
+          .map((e) => ({
+            type: e.type,
+            length: Math.round(Number(e.length)),
+            count: Math.round(Number(e.count)),
+          })),
         notes: form.notes || null,
       });
       if (res?.error) {
@@ -179,6 +190,7 @@ export default function SystemBaselineForm({
     start(async () => {
       await clearSystemBaseline(systemId);
       setForm(init(null));
+      setStreaks([]);
       setMsg("System baseline cleared.");
       router.refresh();
     });
@@ -301,6 +313,8 @@ export default function SystemBaselineForm({
           <Input label="Max loss streak" v={form.max_loss_streak}
             on={(x) => setForm((p) => ({ ...p, max_loss_streak: x }))} />
         </Section>
+
+        <StreakEntriesEditor value={streaks} onChange={setStreaks} />
 
         <div>
           <label className="label">Notes</label>

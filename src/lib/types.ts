@@ -120,6 +120,12 @@ export interface JournalDayEntry {
   unit_size_used: number | null;
 }
 
+export interface BaselineStreakEntry {
+  type: "green" | "red";
+  length: number;
+  count: number;
+}
+
 export interface CapperBaseline {
   capper_id: UUID;
   system_id: UUID;
@@ -143,6 +149,7 @@ export interface CapperBaseline {
   current_streak_type: StreakType;
   max_win_streak: number;
   max_loss_streak: number;
+  streak_breakdown: BaselineStreakEntry[];
   notes: string | null;
 }
 
@@ -166,6 +173,7 @@ export interface SystemBaseline {
   green_day_probability: number;
   max_win_streak: number;
   max_loss_streak: number;
+  streak_breakdown: BaselineStreakEntry[];
   notes: string | null;
 }
 

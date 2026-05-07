@@ -24,7 +24,7 @@ import type {
   SystemBaseline,
 } from "@/lib/types";
 import { aggregateBaselines, combineWithJournal } from "@/lib/baseline";
-import { streakBreakdown } from "@/lib/streaks";
+import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import PerformanceSummary from "@/components/PerformanceSummary";
@@ -330,8 +330,14 @@ export default async function Dashboard({
         </div>
       </section>
 
-      {/* streak breakdown */}
-      <StreakBreakdown entries={streakBreakdown(journalRows)} />
+      {/* streak breakdown — merge baseline (system + every active capper) with tracked journal runs */}
+      <StreakBreakdown
+        entries={mergeBreakdowns(
+          streakBreakdown(journalRows),
+          systemBaselineRaw?.streak_breakdown ?? null,
+          ...activeBaselines.map((b) => b.streak_breakdown ?? null),
+        )}
+      />
 
       {/* capper summary */}
       <section className="panel p-5">

@@ -55,6 +55,16 @@ export function computeStreakRuns(days: DayLike[]): StreakRun[] {
   return runs;
 }
 
+function sortBreakdown(entries: StreakBreakdownEntry[]) {
+  // count desc, length asc, green before red on ties
+  entries.sort((a, b) => {
+    if (b.count !== a.count) return b.count - a.count;
+    if (a.length !== b.length) return a.length - b.length;
+    return a.type === "green" ? -1 : 1;
+  });
+  return entries;
+}
+
 export function streakBreakdown(days: DayLike[]): StreakBreakdownEntry[] {
   const runs = computeStreakRuns(days);
   const counts = new Map<string, number>();
@@ -71,11 +81,31 @@ export function streakBreakdown(days: DayLike[]): StreakBreakdownEntry[] {
       count,
     });
   }
-  // sort by count desc, then length asc, then green before red
-  entries.sort((a, b) => {
-    if (b.count !== a.count) return b.count - a.count;
-    if (a.length !== b.length) return a.length - b.length;
-    return a.type === "green" ? -1 : 1;
-  });
-  return entries;
+  return sortBreakdown(entries);
+}
+
+/**
+ * Merge multiple breakdowns by summing counts on matching (type, length).
+ * Use this to combine baseline historical streaks with tracked streaks.
+ */
+export function mergeBreakdowns(
+  ...inputs: Array<StreakBreakdownEntry[] | null | undefined>
+): StreakBreakdownEntry[] {
+  const counts = new Map<string, { type: StreakColor; length: number; count: number }>();
+  for (const list of inputs) {
+    if (!list) continue;
+    for (const e of list) {
+      if (!e || !e.type || !e.length || !e.count) continue;
+      const k = `${e.type}:${e.length}`;
+      const prev = counts.get(k);
+      if (prev) prev.count += Number(e.count);
+      else
+        counts.set(k, {
+          type: e.type,
+          length: Number(e.length),
+          count: Number(e.count),
+        });
+    }
+  }
+  return sortBreakdown([...counts.values()]);
 }

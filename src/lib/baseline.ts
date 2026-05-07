@@ -63,6 +63,7 @@ export function aggregateBaselines(
     current_streak_type: "neutral_hold",
     max_win_streak: max("max_win_streak"),
     max_loss_streak: max("max_loss_streak"),
+    streak_breakdown: [],
     notes: null,
   };
 }
@@ -180,6 +181,7 @@ export const ZERO_BASELINE: Omit<CapperBaseline, "capper_id" | "system_id" | "no
   current_streak_type: "neutral_hold",
   max_win_streak: 0,
   max_loss_streak: 0,
+  streak_breakdown: [],
 };
 
 /** Build a tracked-only summary (everything from live `capper_day_entries`). */

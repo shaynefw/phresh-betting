@@ -13,7 +13,7 @@ import type {
 import { activeScalingRow } from "@/lib/calc";
 import { combineWithDays } from "@/lib/baseline";
 import { fmtMoney, fmtPct, fmtUnits, pctClass, todayISO } from "@/lib/utils";
-import { streakBreakdown } from "@/lib/streaks";
+import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import ExportButton from "@/components/ExportButton";
 import PerformanceSummary from "@/components/PerformanceSummary";
@@ -205,7 +205,12 @@ export default async function CapperDetail({
         )}
       </section>
 
-      <StreakBreakdown entries={streakBreakdown(dayRows)} />
+      <StreakBreakdown
+        entries={mergeBreakdowns(
+          streakBreakdown(dayRows),
+          baseline?.streak_breakdown ?? null,
+        )}
+      />
 
       <section className="grid lg:grid-cols-3 gap-4">
         <DayEntryForm capperId={c.id} systemId={sysId} unitSize={unitSize} />

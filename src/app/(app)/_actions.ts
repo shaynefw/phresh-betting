@@ -111,6 +111,7 @@ export async function upsertCapperBaseline(input: {
   current_streak_type: "green" | "red" | "neutral_hold";
   max_win_streak: number;
   max_loss_streak: number;
+  streak_breakdown: Array<{ type: "green" | "red"; length: number; count: number }>;
   notes: string | null;
 }) {
   if (!(await ownsSystem(input.systemId))) {
@@ -141,6 +142,7 @@ export async function upsertCapperBaseline(input: {
       current_streak_type: input.current_streak_type,
       max_win_streak: input.max_win_streak,
       max_loss_streak: input.max_loss_streak,
+      streak_breakdown: input.streak_breakdown,
       notes: input.notes,
     },
     { onConflict: "capper_id" },
@@ -171,6 +173,7 @@ export async function upsertSystemBaseline(input: {
   green_day_probability: number;
   max_win_streak: number;
   max_loss_streak: number;
+  streak_breakdown: Array<{ type: "green" | "red"; length: number; count: number }>;
   notes: string | null;
 }) {
   if (!(await ownsSystem(input.systemId))) {
@@ -198,6 +201,7 @@ export async function upsertSystemBaseline(input: {
       green_day_probability: input.green_day_probability,
       max_win_streak: input.max_win_streak,
       max_loss_streak: input.max_loss_streak,
+      streak_breakdown: input.streak_breakdown,
       notes: input.notes,
     },
     { onConflict: "system_id" },
@@ -298,6 +302,7 @@ interface BackupPayload {
     green_day_probability: number;
     max_win_streak: number;
     max_loss_streak: number;
+    streak_breakdown?: Array<{ type: "green" | "red"; length: number; count: number }>;
     notes?: string | null;
   } | null;
   capper_baselines?: Array<{
@@ -322,6 +327,7 @@ interface BackupPayload {
     current_streak_type: "green" | "red" | "neutral_hold";
     max_win_streak: number;
     max_loss_streak: number;
+    streak_breakdown?: Array<{ type: "green" | "red"; length: number; count: number }>;
     notes?: string | null;
   }>;
 }
@@ -455,6 +461,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
       current_streak_type: bl.current_streak_type,
       max_win_streak: bl.max_win_streak,
       max_loss_streak: bl.max_loss_streak,
+      streak_breakdown: bl.streak_breakdown ?? [],
       notes: bl.notes ?? null,
     });
   }
@@ -487,6 +494,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
       green_day_probability: sb2.green_day_probability,
       max_win_streak: sb2.max_win_streak,
       max_loss_streak: sb2.max_loss_streak,
+      streak_breakdown: sb2.streak_breakdown ?? [],
       notes: sb2.notes ?? null,
     });
     if (error) return { error: error.message };

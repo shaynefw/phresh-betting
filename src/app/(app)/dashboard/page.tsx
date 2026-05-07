@@ -24,9 +24,11 @@ import type {
   SystemBaseline,
 } from "@/lib/types";
 import { aggregateBaselines, combineWithJournal } from "@/lib/baseline";
+import { streakBreakdown } from "@/lib/streaks";
 import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import PerformanceSummary from "@/components/PerformanceSummary";
+import StreakBreakdown from "@/components/StreakBreakdown";
 import {
   TrendingUp, TrendingDown, Flame, Snowflake, Activity, Target,
 } from "lucide-react";
@@ -327,6 +329,9 @@ export default async function Dashboard({
           </div>
         </div>
       </section>
+
+      {/* streak breakdown */}
+      <StreakBreakdown entries={streakBreakdown(journalRows)} />
 
       {/* capper summary */}
       <section className="panel p-5">

@@ -109,6 +109,10 @@ export default function SystemBaselineForm({
 
   /** Live preview: what the dashboard will show after saving. */
   const combined = useMemo(() => {
+    // Per-user request: green/red ROI cumulative and avg ROI on the
+    // dashboard are isolated from capper baselines — only the system
+    // baseline contributes from the baseline side. Use form values
+    // alone (no capperAgg) for these specific metrics.
     const offsetGreenRoi =
       Number(form.green_day_roi_cumulative || 0) !== 0
         ? Number(form.green_day_roi_cumulative || 0)
@@ -117,12 +121,14 @@ export default function SystemBaselineForm({
       Number(form.red_day_roi_cumulative || 0) !== 0
         ? Number(form.red_day_roi_cumulative || 0)
         : Number(form.red_day_avg_roi || 0) * Number(form.red_day_count || 0);
+    // Counts (incl. green/red day count) keep capper-baseline contribution.
     const green = capperAgg.green + Number(form.green_day_count || 0);
     const red = capperAgg.red + Number(form.red_day_count || 0);
-    const greenRoiCum = capperAgg.greenRoiCum + offsetGreenRoi;
-    const redRoiCum = capperAgg.redRoiCum + offsetRedRoi;
     const wins = capperAgg.wins + Number(form.wins || 0);
     const losses = capperAgg.losses + Number(form.losses || 0);
+    // Isolated denominators for the avg-ROI calc: system baseline only
+    const sysGreen = Number(form.green_day_count || 0);
+    const sysRed = Number(form.red_day_count || 0);
     return {
       days: capperAgg.days + Number(form.total_betting_days || 0),
       bets: capperAgg.bets + Number(form.total_bets || 0),
@@ -133,8 +139,11 @@ export default function SystemBaselineForm({
       losses,
       green,
       red,
-      greenAvgRoi: green === 0 ? 0 : greenRoiCum / green,
-      redAvgRoi: red === 0 ? 0 : redRoiCum / red,
+      // Isolated: system-baseline side only (journal adds on after save)
+      greenRoiCum: offsetGreenRoi,
+      redRoiCum: offsetRedRoi,
+      greenAvgRoi: sysGreen === 0 ? 0 : offsetGreenRoi / sysGreen,
+      redAvgRoi: sysRed === 0 ? 0 : offsetRedRoi / sysRed,
       greenProb: green + red === 0 ? 0 : (green / (green + red)) * 100,
     };
   }, [capperAgg, form]);

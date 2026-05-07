@@ -29,13 +29,13 @@ import { safeDiv } from "./utils";
  * users enter either field on the form and still get correct dashboard
  * numbers.
  */
-function effectiveGreenCum(b: { green_day_roi_cumulative: number; green_day_avg_roi: number; green_day_count: number } | null | undefined): number {
+export function effectiveGreenCum(b: { green_day_roi_cumulative: number; green_day_avg_roi: number; green_day_count: number } | null | undefined): number {
   if (!b) return 0;
   const cum = Number(b.green_day_roi_cumulative ?? 0);
   if (cum !== 0) return cum;
   return Number(b.green_day_avg_roi ?? 0) * Number(b.green_day_count ?? 0);
 }
-function effectiveRedCum(b: { red_day_roi_cumulative: number; red_day_avg_roi: number; red_day_count: number } | null | undefined): number {
+export function effectiveRedCum(b: { red_day_roi_cumulative: number; red_day_avg_roi: number; red_day_count: number } | null | undefined): number {
   if (!b) return 0;
   const cum = Number(b.red_day_roi_cumulative ?? 0);
   if (cum !== 0) return cum;

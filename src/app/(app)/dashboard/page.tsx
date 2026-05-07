@@ -23,12 +23,7 @@ import type {
   System,
   SystemBaseline,
 } from "@/lib/types";
-import {
-  aggregateBaselines,
-  combineWithJournal,
-  effectiveGreenCum,
-  effectiveRedCum,
-} from "@/lib/baseline";
+import { aggregateBaselines, combineWithJournal } from "@/lib/baseline";
 import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
@@ -91,25 +86,11 @@ export default async function Dashboard({
   const journalSummary = summarizeJournal(journalRows);
   const summary = combineWithJournal(systemBaseline, journalSummary);
 
-  /**
-   * Per-user request: green_day_roi_cumulative, red_day_roi_cumulative,
-   * green_day_avg_roi, red_day_avg_roi on the dashboard come from the
-   * SYSTEM baseline + journal only — capper baselines do NOT contribute
-   * to these four metrics. Other counters (counts, $ profit, units, etc.)
-   * keep current behavior (capper + system + journal).
-   */
-  const isoGreenRoiCum =
-    effectiveGreenCum(systemBaselineRaw) +
-    journalSummary.greenAvgRoi * journalSummary.greenDays;
-  const isoRedRoiCum =
-    effectiveRedCum(systemBaselineRaw) +
-    journalSummary.redAvgRoi * journalSummary.redDays;
-  const isoGreenCount =
-    Number(systemBaselineRaw?.green_day_count ?? 0) + journalSummary.greenDays;
-  const isoRedCount =
-    Number(systemBaselineRaw?.red_day_count ?? 0) + journalSummary.redDays;
-  const isoGreenAvg = isoGreenCount === 0 ? 0 : isoGreenRoiCum / isoGreenCount;
-  const isoRedAvg = isoRedCount === 0 ? 0 : isoRedRoiCum / isoRedCount;
+  // Green/red ROI cumulative + avg follow the same formula as the
+  // per-capper view: cumulative across all sources (capper baselines +
+  // system baseline + journal) divided by the total day count across
+  // those same sources. The aggregated `summary` already contains
+  // these — pass them through directly.
 
   const activeRow = activeScalingRow(scalingRows, focusDate);
   // scaling progress now reflects baseline-included cumulative units
@@ -315,10 +296,10 @@ export default async function Dashboard({
           losses={summary.losses}
           greenDays={summary.greenDays}
           redDays={summary.redDays}
-          greenAvgRoi={isoGreenAvg}
-          redAvgRoi={isoRedAvg}
-          greenRoiCum={isoGreenRoiCum}
-          redRoiCum={isoRedRoiCum}
+          greenAvgRoi={summary.greenAvgRoi}
+          redAvgRoi={summary.redAvgRoi}
+          greenRoiCum={summary.greenRoiCum}
+          redRoiCum={summary.redRoiCum}
           greenProbability={summary.greenProbability}
           currentStreakType={summary.currentStreakType}
           currentStreakValue={summary.currentStreakValue}

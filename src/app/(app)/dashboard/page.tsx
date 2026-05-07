@@ -330,12 +330,12 @@ export default async function Dashboard({
         </div>
       </section>
 
-      {/* streak breakdown — merge baseline (system + every active capper) with tracked journal runs */}
+      {/* streak breakdown — system-level only: tracked journal runs + system baseline.
+          Per-capper baselines stay scoped to their own capper page. */}
       <StreakBreakdown
         entries={mergeBreakdowns(
           streakBreakdown(journalRows),
           systemBaselineRaw?.streak_breakdown ?? null,
-          ...activeBaselines.map((b) => b.streak_breakdown ?? null),
         )}
       />
 
@@ -357,6 +357,7 @@ export default async function Dashboard({
           )}
           {capperRows
             .filter((c) => !c.is_archived)
+            .sort((a, b) => (cumByCapper.get(b.id) ?? 0) - (cumByCapper.get(a.id) ?? 0))
             .map((c) => {
               const cum = cumByCapper.get(c.id) ?? 0;
               const today = onDayByCapper.get(c.id);

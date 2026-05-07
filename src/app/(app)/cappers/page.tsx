@@ -3,7 +3,12 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
-import type { Capper, CapperDayEntry, ScalingLogEntry } from "@/lib/types";
+import type {
+  Capper,
+  CapperBaseline,
+  CapperDayEntry,
+  ScalingLogEntry,
+} from "@/lib/types";
 import { activeScalingRow } from "@/lib/calc";
 import { fmtMoney, fmtPct, fmtUnits, pctClass, todayISO } from "@/lib/utils";
 import AutoSubmitSelect from "@/components/AutoSubmitSelect";
@@ -67,28 +72,56 @@ export default async function CappersPage() {
   if (!ctx) redirect("/sign-in");
   const sysId = ctx.activeSystemId;
   const supabase = createAdminClient();
-  const [{ data: cappers }, { data: scaling }, { data: dayRows }] = await Promise.all([
+  const [
+    { data: cappers },
+    { data: scaling },
+    { data: dayRows },
+    { data: baselineRows },
+  ] = await Promise.all([
     supabase.from("cappers").select("*").eq("system_id", sysId)
       .order("sort_order").order("created_at"),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
     supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
+    supabase.from("capper_baselines").select("*").eq("system_id", sysId),
   ]);
 
   const list = (cappers ?? []) as Capper[];
   const scalingRows = (scaling ?? []) as ScalingLogEntry[];
   const allDayRows = (dayRows ?? []) as CapperDayEntry[];
+  const baselines = (baselineRows ?? []) as CapperBaseline[];
   const today = todayISO();
   const activeRow = activeScalingRow(scalingRows, today);
   const unitSize = activeRow?.unit_size_dollars ?? 0;
 
-  // build per-capper rollups (use last day row per capper)
-  const lastByCapper = new Map<string, CapperDayEntry>();
-  for (const d of allDayRows) {
-    const prev = lastByCapper.get(d.capper_id);
-    if (!prev || prev.date < d.date) lastByCapper.set(d.capper_id, d);
+  const baselineByCapper = new Map<string, CapperBaseline>();
+  for (const b of baselines) baselineByCapper.set(b.capper_id, b);
+
+  // per-capper combined metrics (baseline + tracked)
+  function statsFor(capperId: string) {
+    const b = baselineByCapper.get(capperId);
+    const days = allDayRows.filter((d) => d.capper_id === capperId);
+    const trackedGreen = days.filter((d) => Number(d.daily_roi_percent) > 0).length;
+    const trackedRed = days.filter((d) => Number(d.daily_roi_percent) < 0).length;
+    const greenDays = (b?.green_day_count ?? 0) + trackedGreen;
+    const redDays = (b?.red_day_count ?? 0) + trackedRed;
+    const dayWinRate =
+      greenDays + redDays === 0 ? 0 : (greenDays / (greenDays + redDays)) * 100;
+    const last = days.at(-1);
+    const trackedCum = Number(last?.cumulative_units_pnl ?? 0);
+    const cumUnits = Number(b?.cumulative_units_pnl ?? 0) + trackedCum;
+    const trackedRoi = Number(last?.running_roi_percent ?? 0);
+    const trackedRisk = days.reduce((s, d) => s + Number(d.wager_total), 0);
+    const trackedAmt = Number(last?.cumulative_amount_pnl ?? 0);
+    const totalRisk = Number(b?.total_risk ?? 0) + trackedRisk;
+    const totalAmt = Number(b?.cumulative_amount_pnl ?? 0) + trackedAmt;
+    const runRoi = totalRisk === 0 ? trackedRoi : (totalAmt / totalRisk) * 100;
+    return { greenDays, redDays, dayWinRate, cumUnits, runRoi };
   }
 
-  const active = list.filter((c) => !c.is_archived);
+  const active = list
+    .filter((c) => !c.is_archived)
+    .map((c) => ({ c, stats: statsFor(c.id) }))
+    .sort((a, b) => b.stats.cumUnits - a.stats.cumUnits);
   const archived = list.filter((c) => c.is_archived);
 
   return (
@@ -121,10 +154,7 @@ export default async function CappersPage() {
         {active.length === 0 && (
           <p className="text-sm text-ink-dim text-center py-4">No cappers yet.</p>
         )}
-        {active.map((c) => {
-          const last = lastByCapper.get(c.id);
-          const cum = Number(last?.cumulative_units_pnl ?? 0);
-          const roi = Number(last?.running_roi_percent ?? 0);
+        {active.map(({ c, stats }) => {
           const dollars = c.base_system_risk_units * unitSize;
           return (
             <div key={c.id} className="panel p-3">
@@ -140,19 +170,19 @@ export default async function CappersPage() {
               <div className="grid grid-cols-2 gap-2 text-xs font-mono mb-2">
                 <div>
                   <div className="kpi-label text-[9px]">Cum Units</div>
-                  <div className={pctClass(cum)}>{fmtUnits(cum)}</div>
+                  <div className={pctClass(stats.cumUnits)}>{fmtUnits(stats.cumUnits)}</div>
                 </div>
                 <div>
                   <div className="kpi-label text-[9px]">Run ROI</div>
-                  <div className={pctClass(roi)}>{fmtPct(roi)}</div>
+                  <div className={pctClass(stats.runRoi)}>{fmtPct(stats.runRoi)}</div>
                 </div>
                 <div>
                   <div className="kpi-label text-[9px]">Risk</div>
                   <div>{c.base_system_risk_units}u · {fmtMoney(dollars)}</div>
                 </div>
                 <div>
-                  <div className="kpi-label text-[9px]">Record</div>
-                  <div>{last ? `${last.record_wins}-${last.record_losses}` : "—"}</div>
+                  <div className="kpi-label text-[9px]">Day Win Rate</div>
+                  <div>{stats.greenDays}-{stats.redDays} ({stats.dayWinRate.toFixed(0)}%)</div>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -197,13 +227,12 @@ export default async function CappersPage() {
                 <th className="text-right">System Risk</th>
                 <th className="text-right">Cumulative Units</th>
                 <th className="text-right">ROI</th>
-                <th className="text-right">Win Rate</th>
+                <th className="text-right">Day Win Rate</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {active.map((c) => {
-                const last = lastByCapper.get(c.id);
+              {active.map(({ c, stats }) => {
                 const dollars = c.base_system_risk_units * unitSize;
                 return (
                   <tr key={c.id}>
@@ -243,16 +272,14 @@ export default async function CappersPage() {
                       {c.base_system_risk_units}u
                       <span className="text-ink-dim ml-1">({fmtMoney(dollars)})</span>
                     </td>
-                    <td className={`text-right font-mono ${pctClass(Number(last?.cumulative_units_pnl ?? 0))}`}>
-                      {fmtUnits(Number(last?.cumulative_units_pnl ?? 0))}
+                    <td className={`text-right font-mono ${pctClass(stats.cumUnits)}`}>
+                      {fmtUnits(stats.cumUnits)}
                     </td>
-                    <td className={`text-right font-mono ${pctClass(Number(last?.running_roi_percent ?? 0))}`}>
-                      {fmtPct(Number(last?.running_roi_percent ?? 0))}
+                    <td className={`text-right font-mono ${pctClass(stats.runRoi)}`}>
+                      {fmtPct(stats.runRoi)}
                     </td>
                     <td className="text-right font-mono">
-                      {last
-                        ? `${last.record_wins}-${last.record_losses} (${last.win_rate_percent.toFixed(0)}%)`
-                        : "—"}
+                      {stats.greenDays}-{stats.redDays} ({stats.dayWinRate.toFixed(0)}%)
                     </td>
                     <td className="text-right">
                       <form action={archiveCapper} className="inline-block">

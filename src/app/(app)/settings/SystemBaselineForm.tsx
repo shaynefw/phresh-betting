@@ -83,37 +83,59 @@ export default function SystemBaselineForm({
   /** Sum of all capper baselines — what's already covered. */
   const capperAgg = useMemo(() => {
     const num = (v: unknown) => Number((v ?? 0) as number);
+    // effective green/red ROI cumulative: prefer cumulative, fallback to avg*count
+    const eGreenCum = (r: typeof capperBaselines[number]) => {
+      const cum = num(r.green_day_roi_cumulative);
+      return cum !== 0 ? cum : num(r.green_day_avg_roi) * num(r.green_day_count);
+    };
+    const eRedCum = (r: typeof capperBaselines[number]) => {
+      const cum = num(r.red_day_roi_cumulative);
+      return cum !== 0 ? cum : num(r.red_day_avg_roi) * num(r.red_day_count);
+    };
     return {
       days: capperBaselines.reduce((s, r) => s + num(r.total_betting_days), 0),
       bets: capperBaselines.reduce((s, r) => s + num(r.total_bets), 0),
       risk: capperBaselines.reduce((s, r) => s + num(r.total_risk), 0),
-      amount: capperBaselines.reduce(
-        (s, r) => s + num(r.cumulative_amount_pnl),
-        0,
-      ),
-      units: capperBaselines.reduce(
-        (s, r) => s + num(r.cumulative_units_pnl),
-        0,
-      ),
+      amount: capperBaselines.reduce((s, r) => s + num(r.cumulative_amount_pnl), 0),
+      units: capperBaselines.reduce((s, r) => s + num(r.cumulative_units_pnl), 0),
       wins: capperBaselines.reduce((s, r) => s + num(r.wins), 0),
       losses: capperBaselines.reduce((s, r) => s + num(r.losses), 0),
       green: capperBaselines.reduce((s, r) => s + num(r.green_day_count), 0),
       red: capperBaselines.reduce((s, r) => s + num(r.red_day_count), 0),
+      greenRoiCum: capperBaselines.reduce((s, r) => s + eGreenCum(r), 0),
+      redRoiCum: capperBaselines.reduce((s, r) => s + eRedCum(r), 0),
     };
   }, [capperBaselines]);
 
   /** Live preview: what the dashboard will show after saving. */
   const combined = useMemo(() => {
+    const offsetGreenRoi =
+      Number(form.green_day_roi_cumulative || 0) !== 0
+        ? Number(form.green_day_roi_cumulative || 0)
+        : Number(form.green_day_avg_roi || 0) * Number(form.green_day_count || 0);
+    const offsetRedRoi =
+      Number(form.red_day_roi_cumulative || 0) !== 0
+        ? Number(form.red_day_roi_cumulative || 0)
+        : Number(form.red_day_avg_roi || 0) * Number(form.red_day_count || 0);
+    const green = capperAgg.green + Number(form.green_day_count || 0);
+    const red = capperAgg.red + Number(form.red_day_count || 0);
+    const greenRoiCum = capperAgg.greenRoiCum + offsetGreenRoi;
+    const redRoiCum = capperAgg.redRoiCum + offsetRedRoi;
+    const wins = capperAgg.wins + Number(form.wins || 0);
+    const losses = capperAgg.losses + Number(form.losses || 0);
     return {
       days: capperAgg.days + Number(form.total_betting_days || 0),
       bets: capperAgg.bets + Number(form.total_bets || 0),
       risk: capperAgg.risk + Number(form.total_risk || 0),
       amount: capperAgg.amount + Number(form.cumulative_amount_pnl || 0),
       units: capperAgg.units + Number(form.cumulative_units_pnl || 0),
-      wins: capperAgg.wins + Number(form.wins || 0),
-      losses: capperAgg.losses + Number(form.losses || 0),
-      green: capperAgg.green + Number(form.green_day_count || 0),
-      red: capperAgg.red + Number(form.red_day_count || 0),
+      wins,
+      losses,
+      green,
+      red,
+      greenAvgRoi: green === 0 ? 0 : greenRoiCum / green,
+      redAvgRoi: red === 0 ? 0 : redRoiCum / red,
+      greenProb: green + red === 0 ? 0 : (green / (green + red)) * 100,
     };
   }, [capperAgg, form]);
 
@@ -230,6 +252,16 @@ export default function SystemBaselineForm({
             <Cov label="W / L" v={`${capperAgg.wins}-${capperAgg.losses}`} />
             <Cov label="Green Days" v={capperAgg.green} />
             <Cov label="Red Days" v={capperAgg.red} />
+            <Cov
+              label="Green Avg ROI"
+              v={fmtPct(capperAgg.green === 0 ? 0 : capperAgg.greenRoiCum / capperAgg.green)}
+              tone={1}
+            />
+            <Cov
+              label="Red Avg ROI"
+              v={fmtPct(capperAgg.red === 0 ? 0 : capperAgg.redRoiCum / capperAgg.red)}
+              tone={-1}
+            />
           </div>
           <p className="text-[11px] text-ink-dim mt-2">
             Subtract these from your paper totals to compute the offset to enter below.
@@ -249,6 +281,9 @@ export default function SystemBaselineForm({
             <Cov label="W / L" v={`${combined.wins}-${combined.losses}`} />
             <Cov label="Green Days" v={combined.green} />
             <Cov label="Red Days" v={combined.red} />
+            <Cov label="Green Avg ROI" v={fmtPct(combined.greenAvgRoi)} tone={1} />
+            <Cov label="Red Avg ROI" v={fmtPct(combined.redAvgRoi)} tone={-1} />
+            <Cov label="Green Day Probability" v={`${combined.greenProb.toFixed(0)}%`} />
           </div>
           <p className="text-[11px] text-ink-dim mt-2">
             What the dashboard will show as <strong>baseline-only</strong> totals once you save (before live tracked data is added).

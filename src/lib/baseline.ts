@@ -23,6 +23,25 @@ import { safeDiv } from "./utils";
  * `neutral_hold` because a system isn't on a single streak across
  * cappers. Ratios are not stored — recompute from totals when blending.
  */
+/**
+ * Effective green/red ROI cumulative: prefer the user-entered cumulative,
+ * but fall back to (avg ROI × day count) if cumulative is zero. Lets
+ * users enter either field on the form and still get correct dashboard
+ * numbers.
+ */
+function effectiveGreenCum(b: { green_day_roi_cumulative: number; green_day_avg_roi: number; green_day_count: number } | null | undefined): number {
+  if (!b) return 0;
+  const cum = Number(b.green_day_roi_cumulative ?? 0);
+  if (cum !== 0) return cum;
+  return Number(b.green_day_avg_roi ?? 0) * Number(b.green_day_count ?? 0);
+}
+function effectiveRedCum(b: { red_day_roi_cumulative: number; red_day_avg_roi: number; red_day_count: number } | null | undefined): number {
+  if (!b) return 0;
+  const cum = Number(b.red_day_roi_cumulative ?? 0);
+  if (cum !== 0) return cum;
+  return Number(b.red_day_avg_roi ?? 0) * Number(b.red_day_count ?? 0);
+}
+
 export function aggregateBaselines(
   rows: CapperBaseline[],
   systemId: string,
@@ -36,10 +55,17 @@ export function aggregateBaselines(
     systemBaseline ? num(systemBaseline[k] as number | null | undefined) : 0;
   const sum = (k: keyof CapperBaseline & keyof SystemBaseline) =>
     sumCapper(k) + sumSystem(k);
-  const maxCapper = (k: keyof CapperBaseline) =>
-    rows.reduce((m, r) => Math.max(m, num(r[k] as number | null | undefined)), 0);
-  const max = (k: keyof CapperBaseline & keyof SystemBaseline) =>
-    Math.max(maxCapper(k), sumSystem(k));
+
+  // Effective green/red ROI cumulative across all sources
+  const greenRoiCum =
+    rows.reduce((s, r) => s + effectiveGreenCum(r), 0) +
+    effectiveGreenCum(systemBaseline);
+  const redRoiCum =
+    rows.reduce((s, r) => s + effectiveRedCum(r), 0) +
+    effectiveRedCum(systemBaseline);
+
+  // Streak metrics at the system aggregate level use ONLY the system
+  // baseline (capper-level streaks aren't additive across cappers).
   return {
     capper_id: "_system_aggregate",
     system_id: systemId,
@@ -52,8 +78,8 @@ export function aggregateBaselines(
     losses: sum("losses"),
     green_day_count: sum("green_day_count"),
     red_day_count: sum("red_day_count"),
-    green_day_roi_cumulative: sum("green_day_roi_cumulative"),
-    red_day_roi_cumulative: sum("red_day_roi_cumulative"),
+    green_day_roi_cumulative: greenRoiCum,
+    red_day_roi_cumulative: redRoiCum,
     running_roi_percent: 0, // recomputed on blend
     win_rate_percent: 0,
     green_day_avg_roi: 0,
@@ -61,8 +87,8 @@ export function aggregateBaselines(
     green_day_probability: 0,
     current_streak_value: 0,
     current_streak_type: "neutral_hold",
-    max_win_streak: max("max_win_streak"),
-    max_loss_streak: max("max_loss_streak"),
+    max_win_streak: num(systemBaseline?.max_win_streak),
+    max_loss_streak: num(systemBaseline?.max_loss_streak),
     streak_breakdown: [],
     notes: null,
   };
@@ -216,11 +242,9 @@ export function combine(
   const greenDays = (b?.green_day_count ?? 0) + tracked.greenDays;
   const redDays = (b?.red_day_count ?? 0) + tracked.redDays;
   const greenRoiCum =
-    Number(b?.green_day_roi_cumulative ?? 0) +
-    tracked.greenAvgRoi * tracked.greenDays;
+    effectiveGreenCum(b) + tracked.greenAvgRoi * tracked.greenDays;
   const redRoiCum =
-    Number(b?.red_day_roi_cumulative ?? 0) +
-    tracked.redAvgRoi * tracked.redDays;
+    effectiveRedCum(b) + tracked.redAvgRoi * tracked.redDays;
 
   const runningRoi = safeDiv(cumulativeAmount, totalRisk) * 100;
   const winRate = wins + 0 === 0 ? 0 : 0; // placeholder; will be replaced by combineWithDays
@@ -255,6 +279,44 @@ export function combine(
 }
 
 /**
+ * Walk tracked days starting from the baseline's current streak so the
+ * streak continues seamlessly when a tracked day's color matches the
+ * baseline's ending streak type. e.g. baseline ended at +4 green and
+ * the first tracked day is also green → current streak = 5.
+ *
+ * Also computes max streaks across baseline + tracked.
+ */
+export function currentStreakWithBaseline(
+  baseline: CapperBaseline | null,
+  days: CapperDayEntry[],
+): { type: StreakType; value: number; maxWin: number; maxLoss: number } {
+  let streakVal = baseline?.current_streak_value ?? 0;
+  let streakType: StreakType =
+    baseline?.current_streak_type ?? "neutral_hold";
+  let maxWin = baseline?.max_win_streak ?? 0;
+  let maxLoss = baseline?.max_loss_streak ?? 0;
+  // seed max from the baseline current streak too if it's nonzero
+  if (streakType === "green") maxWin = Math.max(maxWin, streakVal);
+  if (streakType === "red") maxLoss = Math.max(maxLoss, streakVal);
+
+  const sorted = [...days].sort((a, b) => (a.date < b.date ? -1 : 1));
+  for (const d of sorted) {
+    const roi = Number(d.daily_roi_percent);
+    if (roi > 0) {
+      streakVal = streakType === "green" ? streakVal + 1 : 1;
+      streakType = "green";
+      maxWin = Math.max(maxWin, streakVal);
+    } else if (roi < 0) {
+      streakVal = streakType === "red" ? streakVal + 1 : 1;
+      streakType = "red";
+      maxLoss = Math.max(maxLoss, streakVal);
+    }
+    // neutral_hold: leave streak unchanged
+  }
+  return { type: streakType, value: streakVal, maxWin, maxLoss };
+}
+
+/**
  * Authoritative version that pulls wins/losses straight out of the day rows.
  * Use this in pages that already have `days[]` — preferred over `combine()`.
  */
@@ -269,11 +331,16 @@ export function combineWithDays(
   const wins = (baseline?.wins ?? 0) + trackedWins;
   const losses = (baseline?.losses ?? 0) + trackedLosses;
   const blended = combine(baseline, tracked);
+  // Override current streak + max streaks with the baseline-aware walk
+  const streak = currentStreakWithBaseline(baseline, days);
   return {
     ...blended,
     wins,
     losses,
-    winRate:
-      wins + losses === 0 ? 0 : (wins / (wins + losses)) * 100,
+    winRate: wins + losses === 0 ? 0 : (wins / (wins + losses)) * 100,
+    currentStreakType: streak.type,
+    currentStreakValue: streak.value,
+    maxWinStreak: streak.maxWin,
+    maxLossStreak: streak.maxLoss,
   };
 }

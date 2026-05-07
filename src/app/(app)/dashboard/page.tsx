@@ -86,11 +86,23 @@ export default async function Dashboard({
   const journalSummary = summarizeJournal(journalRows);
   const summary = combineWithJournal(systemBaseline, journalSummary);
 
-  // Green/red ROI cumulative + avg follow the same formula as the
-  // per-capper view: cumulative across all sources (capper baselines +
-  // system baseline + journal) divided by the total day count across
-  // those same sources. The aggregated `summary` already contains
-  // these — pass them through directly.
+  /**
+   * Per-user formula:
+   *   Green Day ROI Cumulative = sum of daily_roi_percent across journal
+   *     days where ROI > 0 (i.e., journal only — baselines store
+   *     aggregates, not individual daily ROI values, so they don't
+   *     contribute here).
+   *   # Green Days = full aggregate (capper baselines + system baseline
+   *     + journal) — same as displayed elsewhere.
+   *   Avg ROI for Green Days = Cumulative / Days.
+   * (Same for red.)
+   */
+  const greenRoiCumDisplay = journalSummary.greenRoiCum;
+  const redRoiCumDisplay = journalSummary.redRoiCum;
+  const greenAvgDisplay =
+    summary.greenDays === 0 ? 0 : greenRoiCumDisplay / summary.greenDays;
+  const redAvgDisplay =
+    summary.redDays === 0 ? 0 : redRoiCumDisplay / summary.redDays;
 
   const activeRow = activeScalingRow(scalingRows, focusDate);
   // scaling progress now reflects baseline-included cumulative units
@@ -296,10 +308,10 @@ export default async function Dashboard({
           losses={summary.losses}
           greenDays={summary.greenDays}
           redDays={summary.redDays}
-          greenAvgRoi={summary.greenAvgRoi}
-          redAvgRoi={summary.redAvgRoi}
-          greenRoiCum={summary.greenRoiCum}
-          redRoiCum={summary.redRoiCum}
+          greenAvgRoi={greenAvgDisplay}
+          redAvgRoi={redAvgDisplay}
+          greenRoiCum={greenRoiCumDisplay}
+          redRoiCum={redRoiCumDisplay}
           greenProbability={summary.greenProbability}
           currentStreakType={summary.currentStreakType}
           currentStreakValue={summary.currentStreakValue}

@@ -68,10 +68,12 @@ body::before {
   .tbl {
     @apply w-full border-collapse text-sm;
   }
-  .tbl th {
+  /* :where() zeros out element-selector specificity so per-cell
+     utility classes like `text-right` actually win the cascade. */
+  :where(.tbl th) {
     @apply text-left text-[11px] uppercase tracking-wider text-ink-dim font-medium px-3 py-2 bg-bg-panel border-b border-border;
   }
-  .tbl td {
+  :where(.tbl td) {
     @apply px-3 py-2 border-b border-border/60;
   }
   .pill {

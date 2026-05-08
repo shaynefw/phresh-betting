@@ -23,7 +23,12 @@ import type {
   System,
   SystemBaseline,
 } from "@/lib/types";
-import { aggregateBaselines, combineWithJournal } from "@/lib/baseline";
+import {
+  aggregateBaselines,
+  combineWithJournal,
+  effectiveGreenCum,
+  effectiveRedCum,
+} from "@/lib/baseline";
 import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
@@ -87,18 +92,24 @@ export default async function Dashboard({
   const summary = combineWithJournal(systemBaseline, journalSummary);
 
   /**
-   * Per-user formula:
-   *   Green Day ROI Cumulative = sum of daily_roi_percent across journal
-   *     days where ROI > 0 (i.e., journal only — baselines store
-   *     aggregates, not individual daily ROI values, so they don't
-   *     contribute here).
-   *   # Green Days = full aggregate (capper baselines + system baseline
-   *     + journal) — same as displayed elsewhere.
-   *   Avg ROI for Green Days = Cumulative / Days.
-   * (Same for red.)
+   * Dashboard green/red ROI math (per user spec, validated against
+   * real exported data):
+   *   - Cumulative = system_baseline + journal  (capper baselines do
+   *     NOT contribute to the system-level cumulative; they live on
+   *     each capper's page)
+   *   - # Days = full aggregate (capper baselines + system baseline
+   *     + journal) — same denominator as displayed elsewhere on the
+   *     dashboard
+   *   - Avg = Cumulative / # Days
+   *
+   * Verified end-to-end against the user's real export:
+   *   green: cum 714.72 / 37 days = 19.32%
+   *   red:  cum -507.36 / 34 days = -14.92%
    */
-  const greenRoiCumDisplay = journalSummary.greenRoiCum;
-  const redRoiCumDisplay = journalSummary.redRoiCum;
+  const greenRoiCumDisplay =
+    effectiveGreenCum(systemBaselineRaw) + journalSummary.greenRoiCum;
+  const redRoiCumDisplay =
+    effectiveRedCum(systemBaselineRaw) + journalSummary.redRoiCum;
   const greenAvgDisplay =
     summary.greenDays === 0 ? 0 : greenRoiCumDisplay / summary.greenDays;
   const redAvgDisplay =

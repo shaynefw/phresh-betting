@@ -78,13 +78,20 @@ export default async function Dashboard({
   const baselines = (baselineRows ?? []) as CapperBaseline[];
   const systemBaselineRaw = (systemBaselineRow ?? null) as SystemBaseline | null;
 
-  // restrict baselines to non-archived cappers (archived shouldn't count toward live totals)
-  const activeCapperIds = new Set(capperRows.filter((c) => !c.is_archived).map((c) => c.id));
-  const activeBaselines = baselines.filter((b) => activeCapperIds.has(b.capper_id));
+  // System-level math: exclude archived AND testing cappers from
+  // the baseline aggregate (testing cappers' tracked days are already
+  // filtered out of the journal by the SQL trigger).
+  const liveCapperIds = new Set(
+    capperRows.filter((c) => !c.is_archived && !c.is_testing).map((c) => c.id),
+  );
+  const liveBaselines = baselines.filter((b) => liveCapperIds.has(b.capper_id));
+  // capper-level metric maps (used by the Capper Units Summary, which
+  // still shows testing cappers with a badge — their numbers are
+  // capper-view numbers including their own baseline).
   const baselineByCapper = new Map<string, CapperBaseline>();
-  for (const b of activeBaselines) baselineByCapper.set(b.capper_id, b);
-  // aggregate now folds in the optional system-level baseline too
-  const systemBaseline = aggregateBaselines(activeBaselines, sysId, systemBaselineRaw);
+  for (const b of baselines) baselineByCapper.set(b.capper_id, b);
+  // aggregate folds in the optional system-level baseline too
+  const systemBaseline = aggregateBaselines(liveBaselines, sysId, systemBaselineRaw);
 
   const focusDate = sp.date || journalRows.at(-1)?.date || todayISO();
   const dayJournal = journalRows.find((j) => j.date === focusDate);
@@ -396,14 +403,17 @@ export default async function Dashboard({
               const todayUnits = today ? Number(today.daily_units_pnl) : 0;
               return (
                 <div key={c.id} className="py-2 grid grid-cols-12 items-center gap-2">
-                  <div className="col-span-6 flex items-center gap-3">
+                  <div className="col-span-6 flex items-center gap-2 flex-wrap min-w-0">
                     <PhasePill phase={c.current_phase} />
                     <Link
                       href={`/cappers/${c.id}`}
-                      className="font-medium hover:text-accent"
+                      className={`font-medium hover:text-accent ${c.is_testing ? "text-ink-dim" : ""}`}
                     >
                       {c.name}
                     </Link>
+                    {c.is_testing && (
+                      <span className="pill-warn text-[10px]">Testing</span>
+                    )}
                   </div>
                   <div className={`col-span-3 text-right font-mono ${pctClass(cum)}`}>
                     {fmtUnits(cum)}

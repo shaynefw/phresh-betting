@@ -157,11 +157,19 @@ export default async function CappersPage() {
         {active.map(({ c, stats }) => {
           const dollars = c.base_system_risk_units * unitSize;
           return (
-            <div key={c.id} className="panel p-3">
-              <div className="flex items-start justify-between mb-2">
-                <Link href={`/cappers/${c.id}`} className="font-semibold text-ink hover:text-accent">
-                  {c.name}
-                </Link>
+            <div
+              key={c.id}
+              className={`panel p-3 ${c.is_testing ? "border-warn/40 bg-warn/5" : ""}`}
+            >
+              <div className="flex items-start justify-between mb-2 gap-2">
+                <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                  <Link href={`/cappers/${c.id}`} className="font-semibold text-ink hover:text-accent">
+                    {c.name}
+                  </Link>
+                  {c.is_testing && (
+                    <span className="pill-warn text-[10px]">Testing</span>
+                  )}
+                </div>
                 <form action={archiveCapper}>
                   <input type="hidden" name="id" value={c.id} />
                   <button className="btn-ghost text-[10px] py-1">Archive</button>
@@ -250,9 +258,14 @@ export default async function CappersPage() {
                       </form>
                     </td>
                     <td>
-                      <Link href={`/cappers/${c.id}`} className="font-medium hover:text-accent">
-                        {c.name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link href={`/cappers/${c.id}`} className="font-medium hover:text-accent">
+                          {c.name}
+                        </Link>
+                        {c.is_testing && (
+                          <span className="pill-warn text-[10px]">Testing</span>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <form action={updatePhase} className="inline-block">

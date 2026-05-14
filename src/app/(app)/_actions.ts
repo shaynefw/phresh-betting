@@ -222,6 +222,26 @@ export async function clearSystemBaseline(systemId: string) {
   return { ok: true };
 }
 
+export async function toggleCapperTesting(
+  capperId: string,
+  systemId: string,
+  isTesting: boolean,
+) {
+  if (!(await ownsSystem(systemId))) return { error: "Access denied" };
+  const sb = createAdminClient();
+  const { error } = await sb
+    .from("cappers")
+    .update({ is_testing: isTesting })
+    .eq("id", capperId)
+    .eq("system_id", systemId);
+  if (error) return { error: error.message };
+  revalidatePath(`/cappers/${capperId}`);
+  revalidatePath("/cappers");
+  revalidatePath("/dashboard");
+  revalidatePath("/journal");
+  return { ok: true };
+}
+
 export async function clearCapperBaseline(capperId: string, systemId: string) {
   if (!(await ownsSystem(systemId))) return { error: "Access denied" };
   const sb = createAdminClient();

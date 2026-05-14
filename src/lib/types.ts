@@ -36,6 +36,7 @@ export interface Capper {
   base_system_risk_units: number;
   is_active: boolean;
   is_archived: boolean;
+  is_testing: boolean;
   current_phase: Phase;
   checklist_status: Checklist;
   sort_order: number;

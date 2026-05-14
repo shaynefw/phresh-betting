@@ -21,6 +21,7 @@ import StreakBreakdown from "@/components/StreakBreakdown";
 import DayEntryForm from "./DayEntryForm";
 import BetEntryEditor from "./BetEntryEditor";
 import BaselineForm from "./BaselineForm";
+import TestingToggle from "./TestingToggle";
 
 export const dynamic = "force-dynamic";
 
@@ -133,11 +134,18 @@ export default async function CapperDetail({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {!c.is_testing && (
+            <TestingToggle capperId={c.id} systemId={sysId} isTesting={c.is_testing} />
+          )}
           <BaselineForm capperId={c.id} systemId={sysId} baseline={baseline} />
           <Link href="/cappers" className="btn-ghost">All cappers</Link>
           <ExportButton targetId="capper-root" filename={`${c.name}.png`} />
         </div>
       </header>
+
+      {c.is_testing && (
+        <TestingToggle capperId={c.id} systemId={sysId} isTesting={c.is_testing} />
+      )}
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat label="Cumulative Units" value={fmtUnits(cumUnits)} tone={cumUnits} />

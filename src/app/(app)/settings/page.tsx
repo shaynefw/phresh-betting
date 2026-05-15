@@ -7,6 +7,7 @@ import type {
   CapperBaseline,
   CapperBetEntry,
   CapperDayEntry,
+  ChartBaselinePoint,
   ScalingLogEntry,
   System,
   SystemBaseline,
@@ -45,6 +46,7 @@ export default async function SettingsPage() {
     { data: bets },
     { data: baselines },
     { data: systemBaselineRow },
+    { data: chartPointRows },
   ] = await Promise.all([
     supabase.from("systems").select("*").eq("id", sysId).single(),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
@@ -53,14 +55,16 @@ export default async function SettingsPage() {
     supabase.from("capper_bet_entries").select("*").eq("system_id", sysId).order("date"),
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
     supabase.from("system_baselines").select("*").eq("system_id", sysId).maybeSingle(),
+    supabase.from("chart_baseline_points").select("*").eq("system_id", sysId).order("date"),
   ]);
 
   const system = sys as System;
   const capperBaselines = (baselines ?? []) as CapperBaseline[];
   const systemBaseline = (systemBaselineRow ?? null) as SystemBaseline | null;
+  const chartPoints = (chartPointRows ?? []) as ChartBaselinePoint[];
 
   const exportPayload = {
-    version: 3,
+    version: 4,
     exported_at: new Date().toISOString(),
     system,
     scaling: (scaling ?? []) as ScalingLogEntry[],
@@ -69,6 +73,7 @@ export default async function SettingsPage() {
     capper_bets: (bets ?? []) as CapperBetEntry[],
     capper_baselines: capperBaselines,
     system_baseline: systemBaseline,
+    chart_baseline_points: chartPoints,
   };
 
   return (

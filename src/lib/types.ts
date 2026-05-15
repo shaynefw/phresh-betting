@@ -125,6 +125,16 @@ export interface JournalDayEntry {
   unit_size_used: number | null;
 }
 
+export interface ChartBaselinePoint {
+  id: UUID;
+  system_id: UUID;
+  /** null = system-level (dashboard chart); set = capper-level */
+  capper_id: UUID | null;
+  date: string;
+  cumulative_units: number;
+  notes: string | null;
+}
+
 export interface BaselineStreakEntry {
   type: "green" | "red";
   length: number;

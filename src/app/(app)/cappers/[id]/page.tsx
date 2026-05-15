@@ -8,8 +8,10 @@ import type {
   CapperBaseline,
   CapperBetEntry,
   CapperDayEntry,
+  ChartBaselinePoint,
   ScalingLogEntry,
 } from "@/lib/types";
+import ChartBaselineImporter from "@/components/ChartBaselineImporter";
 import { activeScalingRow } from "@/lib/calc";
 import { combineWithDays } from "@/lib/baseline";
 import { fmtMoney, fmtPct, fmtUnits, pctClass, todayISO } from "@/lib/utils";
@@ -62,12 +64,20 @@ export default async function CapperDetail({
   const supabase = createAdminClient();
   const sysId = ctx.activeSystemId;
 
-  const [{ data: capper }, { data: days }, { data: bets }, { data: scaling }, { data: baselineRow }] = await Promise.all([
+  const [
+    { data: capper },
+    { data: days },
+    { data: bets },
+    { data: scaling },
+    { data: baselineRow },
+    { data: chartPointRows },
+  ] = await Promise.all([
     supabase.from("cappers").select("*").eq("id", id).single(),
     supabase.from("capper_day_entries").select("*").eq("capper_id", id).order("date"),
     supabase.from("capper_bet_entries").select("*").eq("capper_id", id).order("date").order("created_at"),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
     supabase.from("capper_baselines").select("*").eq("capper_id", id).maybeSingle(),
+    supabase.from("chart_baseline_points").select("*").eq("capper_id", id).order("date"),
   ]);
 
   if (!capper) notFound();
@@ -78,6 +88,7 @@ export default async function CapperDetail({
   const betRows = (bets ?? []) as CapperBetEntry[];
   const scalingRows = (scaling ?? []) as ScalingLogEntry[];
   const baseline = (baselineRow ?? null) as CapperBaseline | null;
+  const chartPoints = (chartPointRows ?? []) as ChartBaselinePoint[];
   const today = todayISO();
   const activeRow = activeScalingRow(scalingRows, today);
   const unitSize = activeRow?.unit_size_dollars ?? 0;
@@ -86,29 +97,54 @@ export default async function CapperDetail({
   const cumUnits = combined.cumulativeUnits;
   const runRoi = combined.runningRoi;
 
-  // chart: optional baseline anchor at day 0 (= baseline cumulative units),
-  // then each tracked day adds on top.
-  const baselineUnits = Number(baseline?.cumulative_units_pnl ?? 0);
-  const baselineDayOffset = baseline?.total_betting_days ?? 0;
+  /**
+   * Chart data assembly:
+   *   1. Imported chart baseline points (if any) plot as the trajectory
+   *      preceding tracked data. Tracked picks up from the last
+   *      imported point's cumulative.
+   *   2. Otherwise fall back to the single-anchor baseline behavior.
+   */
+  const sortedChartPoints = [...chartPoints].sort((a, b) =>
+    a.date < b.date ? -1 : 1,
+  );
   const chartData: { day: number; date: string; cumulativeUnits: number; trendline: number | null }[] = [];
-  if (baseline) {
+  let trackedStartUnits = 0;
+  let trackedDayOffset = 0;
+  if (sortedChartPoints.length > 0) {
+    sortedChartPoints.forEach((p, i) => {
+      chartData.push({
+        day: i + 1,
+        date: p.date,
+        cumulativeUnits: Number(p.cumulative_units),
+        trendline: null,
+      });
+    });
+    const last = sortedChartPoints[sortedChartPoints.length - 1];
+    trackedStartUnits = Number(last.cumulative_units);
+    trackedDayOffset = sortedChartPoints.length;
+  } else if (baseline) {
+    trackedStartUnits = Number(baseline.cumulative_units_pnl ?? 0);
+    trackedDayOffset = baseline.total_betting_days ?? 0;
     chartData.push({
-      day: baselineDayOffset,
+      day: trackedDayOffset,
       date: "baseline",
-      cumulativeUnits: baselineUnits,
+      cumulativeUnits: trackedStartUnits,
       trendline: null,
     });
   }
-  let runningUnits = baselineUnits;
+  let runningUnits = trackedStartUnits;
   dayRows.forEach((d, i) => {
     runningUnits += Number(d.daily_units_pnl);
     chartData.push({
-      day: baselineDayOffset + i + 1,
+      day: trackedDayOffset + i + 1,
       date: d.date,
       cumulativeUnits: runningUnits,
       trendline: null,
     });
   });
+
+  // Compat alias used by the header pill
+  const baselineUnits = trackedStartUnits;
 
   const betsByDay = new Map<string, CapperBetEntry[]>();
   for (const b of betRows) {
@@ -158,11 +194,26 @@ export default async function CapperDetail({
       </section>
 
       <section className="panel p-4">
-        <div className="kpi-label mb-2 flex items-center gap-2">
-          Cumulative Units — Trend
-          {baseline && (
-            <span className="pill-info">starts at baseline {fmtUnits(baselineUnits)}</span>
-          )}
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+          <div className="kpi-label flex items-center gap-2 flex-wrap">
+            Cumulative Units — Trend
+            {sortedChartPoints.length > 0 && (
+              <span className="pill-info">
+                {sortedChartPoints.length} baseline point
+                {sortedChartPoints.length === 1 ? "" : "s"} imported
+              </span>
+            )}
+            {sortedChartPoints.length === 0 && baseline && (
+              <span className="pill-info">
+                starts at baseline {fmtUnits(baselineUnits)}
+              </span>
+            )}
+          </div>
+          <ChartBaselineImporter
+            systemId={sysId}
+            capperId={c.id}
+            initialPoints={chartPoints}
+          />
         </div>
         <CumulativeUnitsChart data={chartData} height={260} />
       </section>

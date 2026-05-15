@@ -242,6 +242,44 @@ export async function toggleCapperTesting(
   return { ok: true };
 }
 
+export async function replaceChartBaselinePoints(input: {
+  systemId: string;
+  capperId: string | null;
+  points: Array<{ date: string; cumulative_units: number; notes?: string | null }>;
+}) {
+  if (!(await ownsSystem(input.systemId))) {
+    return { error: "Access denied" };
+  }
+  const sb = createAdminClient();
+  let del = sb.from("chart_baseline_points").delete().eq("system_id", input.systemId);
+  del = input.capperId === null
+    ? del.is("capper_id", null)
+    : del.eq("capper_id", input.capperId);
+  const { error: delErr } = await del;
+  if (delErr) return { error: delErr.message };
+
+  if (input.points.length > 0) {
+    const rows = input.points
+      .filter((p) => p.date && Number.isFinite(p.cumulative_units))
+      .map((p) => ({
+        system_id: input.systemId,
+        capper_id: input.capperId,
+        date: p.date,
+        cumulative_units: p.cumulative_units,
+        notes: p.notes ?? null,
+      }));
+    if (rows.length > 0) {
+      const { error } = await sb.from("chart_baseline_points").insert(rows);
+      if (error) return { error: error.message };
+    }
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/cappers");
+  if (input.capperId) revalidatePath(`/cappers/${input.capperId}`);
+  return { ok: true };
+}
+
 export async function clearCapperBaseline(capperId: string, systemId: string) {
   if (!(await ownsSystem(systemId))) return { error: "Access denied" };
   const sb = createAdminClient();
@@ -303,6 +341,13 @@ interface BackupPayload {
     bet_result: string;
     amount_pnl: number;
     units_risk_multiplier?: number | null;
+    notes?: string | null;
+  }>;
+  chart_baseline_points?: Array<{
+    system_id?: string;
+    capper_id?: string | null;
+    date: string;
+    cumulative_units: number;
     notes?: string | null;
   }>;
   system_baseline?: {
@@ -374,6 +419,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
   await sb.from("capper_day_entries").delete().eq("system_id", systemId);
   await sb.from("capper_baselines").delete().eq("system_id", systemId);
   await sb.from("system_baselines").delete().eq("system_id", systemId);
+  await sb.from("chart_baseline_points").delete().eq("system_id", systemId);
   await sb.from("cappers").delete().eq("system_id", systemId);
 
   const capperIdMap = new Map<string, string>();
@@ -526,6 +572,29 @@ export async function importBackup(systemId: string, payloadJson: string) {
     systemBaselineImported = true;
   }
 
+  // chart_baseline_points (v4 backups). Each point is either system-level
+  // (capper_id null) or capper-level (remap to the freshly-inserted id).
+  const chartPointRows: Array<Record<string, unknown>> = [];
+  for (const p of data.chart_baseline_points ?? []) {
+    if (!p.date || !Number.isFinite(p.cumulative_units)) continue;
+    let newCapperId: string | null = null;
+    if (p.capper_id) {
+      newCapperId = capperIdMap.get(p.capper_id) ?? null;
+      if (!newCapperId) continue; // orphaned point — capper missing
+    }
+    chartPointRows.push({
+      system_id: systemId,
+      capper_id: newCapperId,
+      date: p.date,
+      cumulative_units: p.cumulative_units,
+      notes: p.notes ?? null,
+    });
+  }
+  if (chartPointRows.length > 0) {
+    const { error } = await sb.from("chart_baseline_points").insert(chartPointRows);
+    if (error) return { error: error.message };
+  }
+
   revalidatePath("/dashboard");
   revalidatePath("/journal");
   revalidatePath("/cappers");
@@ -539,6 +608,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
       bets: betRows.length,
       baselines: baselineRows.length,
       system_baseline: systemBaselineImported,
+      chart_points: chartPointRows.length,
     },
   };
 }

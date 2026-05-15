@@ -18,11 +18,13 @@ import type {
   Capper,
   CapperBaseline,
   CapperDayEntry,
+  ChartBaselinePoint,
   JournalDayEntry,
   ScalingLogEntry,
   System,
   SystemBaseline,
 } from "@/lib/types";
+import ChartBaselineImporter from "@/components/ChartBaselineImporter";
 import {
   aggregateBaselines,
   combineWithJournal,
@@ -60,6 +62,7 @@ export default async function Dashboard({
     { data: dayRows },
     { data: baselineRows },
     { data: systemBaselineRow },
+    { data: chartPointRows },
   ] = await Promise.all([
     supabase.from("systems").select("*").eq("id", sysId).single(),
     supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date"),
@@ -68,6 +71,7 @@ export default async function Dashboard({
     supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
     supabase.from("system_baselines").select("*").eq("system_id", sysId).maybeSingle(),
+    supabase.from("chart_baseline_points").select("*").eq("system_id", sysId).is("capper_id", null).order("date"),
   ]);
 
   const system = sys as System;
@@ -77,6 +81,7 @@ export default async function Dashboard({
   const allDayRows = (dayRows ?? []) as CapperDayEntry[];
   const baselines = (baselineRows ?? []) as CapperBaseline[];
   const systemBaselineRaw = (systemBaselineRow ?? null) as SystemBaseline | null;
+  const chartPoints = (chartPointRows ?? []) as ChartBaselinePoint[];
 
   // System-level math: include ALL non-archived cappers' baselines
   // regardless of testing state. Testing is now per-entry (capper_day_
@@ -124,23 +129,50 @@ export default async function Dashboard({
   // scaling progress now reflects baseline-included cumulative units
   const scaleState = computeScalingState(summary.cumulativeUnits, activeRow);
 
-  // chart data — anchor at sum-of-baseline-units, then journal days add on top
-  const baselineUnits = Number(systemBaseline?.cumulative_units_pnl ?? 0);
-  const baselineDayOffset = systemBaseline?.total_betting_days ?? 0;
+  /**
+   * Chart data assembly:
+   *   1. If the user imported chart baseline points, plot each as a
+   *      day on the chart. Tracked data picks up from the last
+   *      imported point's cumulative.
+   *   2. Otherwise fall back to the legacy single-anchor behavior:
+   *      one point at systemBaseline.cumulative_units_pnl, then
+   *      tracked days continue from there.
+   *   3. If neither, just plot tracked days starting at 0.
+   */
+  const sortedChartPoints = [...chartPoints].sort((a, b) =>
+    a.date < b.date ? -1 : 1,
+  );
   const chartData: { day: number; date: string; cumulativeUnits: number; trendline: number | null }[] = [];
-  if (systemBaseline) {
+
+  let trackedStartUnits = 0;
+  let trackedDayOffset = 0;
+  if (sortedChartPoints.length > 0) {
+    sortedChartPoints.forEach((p, i) => {
+      chartData.push({
+        day: i + 1,
+        date: p.date,
+        cumulativeUnits: Number(p.cumulative_units),
+        trendline: null,
+      });
+    });
+    const last = sortedChartPoints[sortedChartPoints.length - 1];
+    trackedStartUnits = Number(last.cumulative_units);
+    trackedDayOffset = sortedChartPoints.length;
+  } else if (systemBaseline) {
+    trackedStartUnits = Number(systemBaseline.cumulative_units_pnl ?? 0);
+    trackedDayOffset = systemBaseline.total_betting_days ?? 0;
     chartData.push({
-      day: baselineDayOffset,
+      day: trackedDayOffset,
       date: "baseline",
-      cumulativeUnits: baselineUnits,
+      cumulativeUnits: trackedStartUnits,
       trendline: null,
     });
   }
   journalRows.forEach((j, i) => {
     chartData.push({
-      day: baselineDayOffset + i + 1,
+      day: trackedDayOffset + i + 1,
       date: j.date,
-      cumulativeUnits: baselineUnits + Number(j.cumulative_units_pnl),
+      cumulativeUnits: trackedStartUnits + Number(j.cumulative_units_pnl),
       trendline: null,
     });
   });
@@ -153,6 +185,9 @@ export default async function Dashboard({
       p.trendline = first + t * (last - first);
     });
   }
+
+  // Compatibility alias used by the existing "starts at baseline" pill
+  const baselineUnits = trackedStartUnits;
 
   // capper-on-the-day map
   const onDayByCapper = new Map<string, CapperDayEntry>();
@@ -278,11 +313,17 @@ export default async function Dashboard({
 
       {/* main chart */}
       <section className="panel p-5">
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
           <div>
-            <div className="kpi-label flex items-center gap-2">
+            <div className="kpi-label flex items-center gap-2 flex-wrap">
               Cumulative Units Over Time
-              {systemBaseline && (
+              {sortedChartPoints.length > 0 && (
+                <span className="pill-info">
+                  {sortedChartPoints.length} baseline point
+                  {sortedChartPoints.length === 1 ? "" : "s"} imported
+                </span>
+              )}
+              {sortedChartPoints.length === 0 && systemBaseline && (
                 <span className="pill-info">
                   starts at baseline {fmtUnits(baselineUnits)}
                 </span>
@@ -292,13 +333,20 @@ export default async function Dashboard({
               {fmtUnits(summary.cumulativeUnits)}
             </div>
           </div>
-          <div className="flex gap-3 text-xs text-ink-dim">
-            <span className="flex items-center gap-1.5">
-              <span className="h-0.5 w-5 bg-accent inline-block" /> Cumulative Units
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="h-0.5 w-5 bg-warn inline-block border-dashed" /> Trendline
-            </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <ChartBaselineImporter
+              systemId={sysId}
+              capperId={null}
+              initialPoints={chartPoints}
+            />
+            <div className="flex gap-3 text-xs text-ink-dim">
+              <span className="flex items-center gap-1.5">
+                <span className="h-0.5 w-5 bg-accent inline-block" /> Cumulative Units
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-0.5 w-5 bg-warn inline-block border-dashed" /> Trendline
+              </span>
+            </div>
           </div>
         </div>
         <CumulativeUnitsChart

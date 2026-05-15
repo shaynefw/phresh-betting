@@ -77,6 +77,7 @@ export default function BackupTools({ systemId, payload }: Props) {
         ];
         if ("baselines" in s && s.baselines) parts.push(`${s.baselines} capper baselines`);
         if ("system_baseline" in s && s.system_baseline) parts.push("system baseline");
+        if ("chart_points" in s && s.chart_points) parts.push(`${s.chart_points} chart points`);
         setMsg(`Imported ${parts.join(", ")}.`);
       }
       setImportJson("");

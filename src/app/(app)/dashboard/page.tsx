@@ -78,20 +78,18 @@ export default async function Dashboard({
   const baselines = (baselineRows ?? []) as CapperBaseline[];
   const systemBaselineRaw = (systemBaselineRow ?? null) as SystemBaseline | null;
 
-  // System-level math: exclude archived AND testing cappers from
-  // the baseline aggregate (testing cappers' tracked days are already
-  // filtered out of the journal by the SQL trigger).
-  const liveCapperIds = new Set(
-    capperRows.filter((c) => !c.is_archived && !c.is_testing).map((c) => c.id),
+  // System-level math: include ALL non-archived cappers' baselines
+  // regardless of testing state. Testing is now per-entry (capper_day_
+  // entries.excluded_from_system snapshot at INSERT time) — pre-existing
+  // baseline data is "pre-testing" by definition, so it always counts.
+  const activeCapperIds = new Set(
+    capperRows.filter((c) => !c.is_archived).map((c) => c.id),
   );
-  const liveBaselines = baselines.filter((b) => liveCapperIds.has(b.capper_id));
-  // capper-level metric maps (used by the Capper Units Summary, which
-  // still shows testing cappers with a badge — their numbers are
-  // capper-view numbers including their own baseline).
+  const activeBaselines = baselines.filter((b) => activeCapperIds.has(b.capper_id));
   const baselineByCapper = new Map<string, CapperBaseline>();
-  for (const b of baselines) baselineByCapper.set(b.capper_id, b);
+  for (const b of activeBaselines) baselineByCapper.set(b.capper_id, b);
   // aggregate folds in the optional system-level baseline too
-  const systemBaseline = aggregateBaselines(liveBaselines, sysId, systemBaselineRaw);
+  const systemBaseline = aggregateBaselines(activeBaselines, sysId, systemBaselineRaw);
 
   const focusDate = sp.date || journalRows.at(-1)?.date || todayISO();
   const dayJournal = journalRows.find((j) => j.date === focusDate);

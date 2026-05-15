@@ -274,6 +274,7 @@ interface BackupPayload {
     base_system_risk_units: number;
     is_active: boolean;
     is_archived: boolean;
+    is_testing?: boolean;
     current_phase: string;
     checklist_status: string;
     sort_order?: number;
@@ -290,6 +291,7 @@ interface BackupPayload {
     wins: number;
     losses: number;
     unit_size_used?: number | null;
+    excluded_from_system?: boolean;
     notes?: string | null;
   }>;
   capper_bets: Array<{
@@ -395,6 +397,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
         base_system_risk_units: c.base_system_risk_units,
         is_active: c.is_active,
         is_archived: c.is_archived,
+        is_testing: c.is_testing ?? false,
         current_phase: c.current_phase,
         checklist_status: c.checklist_status,
         sort_order: c.sort_order ?? 0,
@@ -422,6 +425,8 @@ export async function importBackup(systemId: string, payloadJson: string) {
         wins: d.wins,
         losses: d.losses,
         unit_size_used: d.unit_size_used,
+        // restore historical exclusion state if present in backup
+        excluded_from_system: d.excluded_from_system ?? false,
         notes: d.notes ?? null,
       })
       .select("id")

@@ -71,6 +71,10 @@ export interface CapperDayEntry {
   max_loss_streak: number;
   is_complete: boolean;
   notes: string | null;
+  /** Snapshot of `cappers.is_testing` at INSERT time. Never changes
+   * on update. The recompute_journal SQL trigger filters by this flag
+   * so toggling testing later doesn't reclassify past entries. */
+  excluded_from_system: boolean;
   created_at: string;
   updated_at: string;
 }

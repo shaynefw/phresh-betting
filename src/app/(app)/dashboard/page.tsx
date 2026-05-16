@@ -32,6 +32,7 @@ import {
   effectiveRedCum,
 } from "@/lib/baseline";
 import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
+import { linearRegression } from "@/lib/regression";
 import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import PerformanceSummary from "@/components/PerformanceSummary";
@@ -176,13 +177,15 @@ export default async function Dashboard({
       trendline: null,
     });
   });
-  // simple trendline from first→last
-  if (chartData.length > 1) {
-    const first = chartData[0].cumulativeUnits;
-    const last = chartData[chartData.length - 1].cumulativeUnits;
-    chartData.forEach((p, i) => {
-      const t = i / (chartData.length - 1);
-      p.trendline = first + t * (last - first);
+  // Ordinary least-squares regression line spanning the entire dataset
+  // (Apple-Numbers-style line of best fit). Renders straight because
+  // every row carries y = m*x + b at its real x value.
+  const fit = linearRegression(
+    chartData.map((p) => ({ x: p.day, y: p.cumulativeUnits })),
+  );
+  if (fit) {
+    chartData.forEach((p) => {
+      p.trendline = fit.slope * p.day + fit.intercept;
     });
   }
 
@@ -344,7 +347,11 @@ export default async function Dashboard({
                 <span className="h-0.5 w-5 bg-accent inline-block" /> Cumulative Units
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="h-0.5 w-5 bg-warn inline-block border-dashed" /> Trendline
+                <span
+                  className="h-0.5 w-5 inline-block"
+                  style={{ backgroundColor: "#d9d141" }}
+                />{" "}
+                Trendline
               </span>
             </div>
           </div>

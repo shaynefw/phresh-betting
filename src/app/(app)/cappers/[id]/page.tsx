@@ -16,6 +16,7 @@ import { activeScalingRow } from "@/lib/calc";
 import { combineWithDays } from "@/lib/baseline";
 import { fmtMoney, fmtPct, fmtUnits, pctClass, todayISO } from "@/lib/utils";
 import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
+import { linearRegression } from "@/lib/regression";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import ExportButton from "@/components/ExportButton";
 import PerformanceSummary from "@/components/PerformanceSummary";
@@ -142,6 +143,16 @@ export default async function CapperDetail({
       trendline: null,
     });
   });
+
+  // Apple-Numbers-style least-squares line of best fit.
+  const capperFit = linearRegression(
+    chartData.map((p) => ({ x: p.day, y: p.cumulativeUnits })),
+  );
+  if (capperFit) {
+    chartData.forEach((p) => {
+      p.trendline = capperFit.slope * p.day + capperFit.intercept;
+    });
+  }
 
   // Compat alias used by the header pill
   const baselineUnits = trackedStartUnits;

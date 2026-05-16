@@ -43,7 +43,14 @@ export default function CumulativeUnitsChart({
           </linearGradient>
         </defs>
         <CartesianGrid stroke="#1a2540" strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="day" tickLine={false} axisLine={{ stroke: "#1a2540" }} />
+        <XAxis
+          dataKey="day"
+          type="number"
+          domain={["dataMin", "dataMax"]}
+          allowDecimals={false}
+          tickLine={false}
+          axisLine={{ stroke: "#1a2540" }}
+        />
         <YAxis tickLine={false} axisLine={{ stroke: "#1a2540" }} width={36} />
         <Tooltip
           formatter={(v: number) => `${v.toFixed(2)}u`}
@@ -88,12 +95,14 @@ export default function CumulativeUnitsChart({
           activeDot={{ r: 4, stroke: "#22a8ff", strokeWidth: 2, fill: "#0d1422" }}
         />
         <Line
-          type="monotone"
+          type="linear"
           dataKey="trendline"
-          stroke="#f59e0b"
-          strokeWidth={1.5}
+          stroke="#d9d141"
+          strokeWidth={2}
           dot={false}
-          strokeDasharray="2 4"
+          activeDot={false}
+          isAnimationActive={false}
+          connectNulls={false}
         />
       </ComposedChart>
     </ResponsiveContainer>

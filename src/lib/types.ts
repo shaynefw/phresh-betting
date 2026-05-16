@@ -130,7 +130,9 @@ export interface ChartBaselinePoint {
   system_id: UUID;
   /** null = system-level (dashboard chart); set = capper-level */
   capper_id: UUID | null;
-  date: string;
+  /** Sequential betting day on the chart's X-axis (1-indexed). Tracked
+   * data continues at max(day_number) + 1. */
+  day_number: number;
   cumulative_units: number;
   notes: string | null;
 }

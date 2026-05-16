@@ -245,7 +245,7 @@ export async function toggleCapperTesting(
 export async function replaceChartBaselinePoints(input: {
   systemId: string;
   capperId: string | null;
-  points: Array<{ date: string; cumulative_units: number; notes?: string | null }>;
+  points: Array<{ day_number: number; cumulative_units: number; notes?: string | null }>;
 }) {
   if (!(await ownsSystem(input.systemId))) {
     return { error: "Access denied" };
@@ -260,11 +260,16 @@ export async function replaceChartBaselinePoints(input: {
 
   if (input.points.length > 0) {
     const rows = input.points
-      .filter((p) => p.date && Number.isFinite(p.cumulative_units))
+      .filter(
+        (p) =>
+          Number.isFinite(p.day_number) &&
+          p.day_number >= 1 &&
+          Number.isFinite(p.cumulative_units),
+      )
       .map((p) => ({
         system_id: input.systemId,
         capper_id: input.capperId,
-        date: p.date,
+        day_number: Math.round(Number(p.day_number)),
         cumulative_units: p.cumulative_units,
         notes: p.notes ?? null,
       }));
@@ -346,7 +351,9 @@ interface BackupPayload {
   chart_baseline_points?: Array<{
     system_id?: string;
     capper_id?: string | null;
-    date: string;
+    /** v4: date (legacy, ignored on import). v5+: day_number (integer). */
+    date?: string;
+    day_number?: number;
     cumulative_units: number;
     notes?: string | null;
   }>;
@@ -572,20 +579,40 @@ export async function importBackup(systemId: string, payloadJson: string) {
     systemBaselineImported = true;
   }
 
-  // chart_baseline_points (v4 backups). Each point is either system-level
-  // (capper_id null) or capper-level (remap to the freshly-inserted id).
+  // chart_baseline_points (v5 backups use day_number; older v4 backups
+  // had a date field that we now drop — they can't be cleanly converted
+  // to sequential day numbers, so per-spec they're cleared on import).
   const chartPointRows: Array<Record<string, unknown>> = [];
-  for (const p of data.chart_baseline_points ?? []) {
-    if (!p.date || !Number.isFinite(p.cumulative_units)) continue;
+  const seenByScope = new Map<string, Set<number>>(); // dedupe per scope
+  // First, sort incoming points by day_number (or by date as a fallback
+  // ordering hint so v4 backups still produce something usable if the
+  // user happens to have integer-looking dates).
+  const incoming = (data.chart_baseline_points ?? []).slice().sort((a, b) => {
+    const da = Number(a.day_number ?? 0);
+    const db = Number(b.day_number ?? 0);
+    return da - db;
+  });
+  for (const p of incoming) {
+    if (!Number.isFinite(p.cumulative_units)) continue;
+    const day = Number(p.day_number);
+    if (!Number.isFinite(day) || day < 1) continue;
     let newCapperId: string | null = null;
     if (p.capper_id) {
       newCapperId = capperIdMap.get(p.capper_id) ?? null;
       if (!newCapperId) continue; // orphaned point — capper missing
     }
+    const scopeKey = newCapperId ?? "__system__";
+    let seen = seenByScope.get(scopeKey);
+    if (!seen) {
+      seen = new Set();
+      seenByScope.set(scopeKey, seen);
+    }
+    if (seen.has(day)) continue; // dedupe duplicate day_numbers in same scope
+    seen.add(day);
     chartPointRows.push({
       system_id: systemId,
       capper_id: newCapperId,
-      date: p.date,
+      day_number: Math.round(day),
       cumulative_units: p.cumulative_units,
       notes: p.notes ?? null,
     });

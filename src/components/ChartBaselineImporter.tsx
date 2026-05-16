@@ -11,19 +11,19 @@ interface Props {
   systemId: string;
   /** null → system-level points (dashboard chart); set → capper-level */
   capperId: string | null;
-  /** Existing points loaded from DB (sorted by date asc) */
+  /** Existing points loaded from DB */
   initialPoints: ChartBaselinePoint[];
   /** Optional override for the button label */
   buttonLabel?: string;
 }
 
-type Row = { date: string; cumulative_units: string };
+type Row = { day_number: string; cumulative_units: string };
 
 function toRows(points: ChartBaselinePoint[]): Row[] {
   return [...points]
-    .sort((a, b) => (a.date < b.date ? -1 : 1))
+    .sort((a, b) => a.day_number - b.day_number)
     .map((p) => ({
-      date: p.date,
+      day_number: String(p.day_number),
       cumulative_units: String(p.cumulative_units),
     }));
 }
@@ -42,7 +42,12 @@ export default function ChartBaselineImporter({
   const [msg, setMsg] = useState<string | null>(null);
 
   function addRow() {
-    setRows((p) => [...p, { date: "", cumulative_units: "" }]);
+    // suggest the next day number based on the highest existing
+    const nextDay = rows.reduce((m, r) => {
+      const d = Number(r.day_number);
+      return Number.isFinite(d) && d > m ? d : m;
+    }, 0) + 1;
+    setRows((p) => [...p, { day_number: String(nextDay), cumulative_units: "" }]);
   }
   function updateRow(i: number, patch: Partial<Row>) {
     setRows((p) => p.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -51,7 +56,7 @@ export default function ChartBaselineImporter({
     setRows((p) => p.filter((_, idx) => idx !== i));
   }
   function pasteCsv(text: string) {
-    // Accepts lines of "YYYY-MM-DD,units" or "YYYY-MM-DD\tunits"
+    // Accepts lines of "day,units" or "day\tunits" (e.g. "1, 0.5")
     const lines = text
       .split(/\r?\n/)
       .map((l) => l.trim())
@@ -60,14 +65,14 @@ export default function ChartBaselineImporter({
     for (const line of lines) {
       const parts = line.split(/[,\t]/).map((s) => s.trim());
       if (parts.length < 2) continue;
-      const date = parts[0];
+      const day = parts[0];
       const units = parts[1];
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      if (!/^\d+$/.test(day) || Number(day) < 1) continue;
       if (!Number.isFinite(Number(units))) continue;
-      parsed.push({ date, cumulative_units: units });
+      parsed.push({ day_number: day, cumulative_units: units });
     }
     if (parsed.length === 0) {
-      setErr("Couldn't parse any rows. Use one per line: YYYY-MM-DD, units");
+      setErr("Couldn't parse any rows. Use one per line: betting-day, units");
       return;
     }
     setRows((p) => [...p, ...parsed]);
@@ -79,11 +84,28 @@ export default function ChartBaselineImporter({
     e.preventDefault();
     setErr(null);
     setMsg(null);
+
+    // Validate: no duplicate day_numbers, all positive
+    const seen = new Set<number>();
+    for (const r of rows) {
+      const d = Math.round(Number(r.day_number));
+      if (!r.day_number || r.cumulative_units === "") continue;
+      if (!Number.isFinite(d) || d < 1) {
+        setErr(`Invalid betting day "${r.day_number}". Must be an integer ≥ 1.`);
+        return;
+      }
+      if (seen.has(d)) {
+        setErr(`Duplicate betting day ${d}. Each day can only appear once.`);
+        return;
+      }
+      seen.add(d);
+    }
+
     start(async () => {
       const points = rows
-        .filter((r) => r.date && r.cumulative_units !== "")
+        .filter((r) => r.day_number && r.cumulative_units !== "")
         .map((r) => ({
-          date: r.date,
+          day_number: Math.round(Number(r.day_number)),
           cumulative_units: Number(r.cumulative_units),
         }));
       const res = await replaceChartBaselinePoints({ systemId, capperId, points });
@@ -102,14 +124,14 @@ export default function ChartBaselineImporter({
   }
 
   // summary for the existing imported points
-  const sorted = [...initialPoints].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const sorted = [...initialPoints].sort((a, b) => a.day_number - b.day_number);
   const summary =
     sorted.length === 0
       ? null
       : {
           count: sorted.length,
-          first: sorted[0].date,
-          last: sorted[sorted.length - 1].date,
+          firstDay: sorted[0].day_number,
+          lastDay: sorted[sorted.length - 1].day_number,
           endingUnits: Number(sorted[sorted.length - 1].cumulative_units),
         };
 
@@ -145,9 +167,9 @@ export default function ChartBaselineImporter({
                 </h2>
                 <p className="text-xs text-ink-dim mt-1">
                   Add a row for each historical betting day. Each point is{" "}
-                  <span className="text-ink">(date, cumulative units)</span> — the
-                  running total as of that day. Points render on the chart
-                  before tracked data, with no visual distinction.
+                  <span className="text-ink">(betting day #, cumulative units)</span>{" "}
+                  — the running total as of that day. Tracked data continues at{" "}
+                  <span className="text-ink">Day {(summary?.lastDay ?? 0) + 1}</span>.
                 </p>
               </div>
               <button
@@ -164,8 +186,8 @@ export default function ChartBaselineImporter({
               <div className="bg-bg-panel/60 rounded-md border border-border px-3 py-2 mb-3 flex items-center gap-2 text-xs">
                 <History className="h-3.5 w-3.5 text-accent shrink-0" />
                 <span className="text-ink-dim">
-                  {summary.count} point{summary.count === 1 ? "" : "s"} imported ·{" "}
-                  {summary.first} → {summary.last} · ends at{" "}
+                  {summary.count} point{summary.count === 1 ? "" : "s"} imported ·
+                  Day {summary.firstDay} → Day {summary.lastDay} · ends at{" "}
                   <span className={summary.endingUnits >= 0 ? "text-good" : "text-bad"}>
                     {fmtUnits(summary.endingUnits)}
                   </span>
@@ -177,19 +199,24 @@ export default function ChartBaselineImporter({
               {rows.length === 0 && (
                 <p className="text-xs text-ink-dim italic py-3">
                   No baseline points yet. Click <em>Add row</em> below, or paste
-                  CSV (one per line: <code>YYYY-MM-DD, units</code>).
+                  CSV (one per line: <code>betting-day, units</code>).
                 </p>
               )}
 
               {rows.map((r, idx) => (
                 <div key={idx} className="grid grid-cols-12 gap-2 items-end">
                   <div className="col-span-5">
-                    {idx === 0 && <label className="label">Date</label>}
+                    {idx === 0 && <label className="label">Betting day #</label>}
                     <input
-                      type="date"
+                      type="number"
+                      min={1}
+                      step={1}
                       className="input"
-                      value={r.date}
-                      onChange={(e) => updateRow(idx, { date: e.target.value })}
+                      value={r.day_number}
+                      placeholder="e.g. 1"
+                      onChange={(e) =>
+                        updateRow(idx, { day_number: e.target.value })
+                      }
                     />
                   </div>
                   <div className="col-span-5">
@@ -230,10 +257,10 @@ export default function ChartBaselineImporter({
                   </summary>
                   <textarea
                     className="input min-h-[80px] font-mono text-[11px] mt-2 w-full"
-                    placeholder={"2025-01-01, 0\n2025-01-02, 1.5\n2025-01-03, -0.4"}
+                    placeholder={"1, 0\n2, 1.5\n3, -0.4\n4, 2.1"}
                     onPaste={(e) => {
                       const text = e.clipboardData.getData("text");
-                      if (text && /\d{4}-\d{2}-\d{2}/.test(text)) {
+                      if (text && /\d/.test(text)) {
                         e.preventDefault();
                         pasteCsv(text);
                       }

@@ -64,7 +64,7 @@ export default async function SettingsPage() {
   const chartPoints = (chartPointRows ?? []) as ChartBaselinePoint[];
 
   const exportPayload = {
-    version: 4,
+    version: 5,
     exported_at: new Date().toISOString(),
     system,
     scaling: (scaling ?? []) as ScalingLogEntry[],

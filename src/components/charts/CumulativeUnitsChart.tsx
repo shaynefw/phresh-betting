@@ -49,7 +49,11 @@ export default function CumulativeUnitsChart({
           formatter={(v: number) => `${v.toFixed(2)}u`}
           labelFormatter={(d, payload) => {
             const p = payload?.[0]?.payload as CumulativePoint | undefined;
-            return p ? `Day ${p.day} • ${p.date}` : `Day ${d}`;
+            if (!p) return `Day ${d}`;
+            // Imported baseline points have no calendar date; show only "Day N".
+            return p.date && p.date !== "baseline"
+              ? `Day ${p.day} • ${p.date}`
+              : `Day ${p.day}`;
           }}
         />
         {typeof scaleUpAt === "number" && (

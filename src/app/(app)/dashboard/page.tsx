@@ -71,7 +71,7 @@ export default async function Dashboard({
     supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
     supabase.from("system_baselines").select("*").eq("system_id", sysId).maybeSingle(),
-    supabase.from("chart_baseline_points").select("*").eq("system_id", sysId).is("capper_id", null).order("date"),
+    supabase.from("chart_baseline_points").select("*").eq("system_id", sysId).is("capper_id", null).order("day_number"),
   ]);
 
   const system = sys as System;
@@ -139,25 +139,25 @@ export default async function Dashboard({
    *      tracked days continue from there.
    *   3. If neither, just plot tracked days starting at 0.
    */
-  const sortedChartPoints = [...chartPoints].sort((a, b) =>
-    a.date < b.date ? -1 : 1,
+  const sortedChartPoints = [...chartPoints].sort(
+    (a, b) => a.day_number - b.day_number,
   );
   const chartData: { day: number; date: string; cumulativeUnits: number; trendline: number | null }[] = [];
 
   let trackedStartUnits = 0;
   let trackedDayOffset = 0;
   if (sortedChartPoints.length > 0) {
-    sortedChartPoints.forEach((p, i) => {
+    sortedChartPoints.forEach((p) => {
       chartData.push({
-        day: i + 1,
-        date: p.date,
+        day: p.day_number,
+        date: "",
         cumulativeUnits: Number(p.cumulative_units),
         trendline: null,
       });
     });
     const last = sortedChartPoints[sortedChartPoints.length - 1];
     trackedStartUnits = Number(last.cumulative_units);
-    trackedDayOffset = sortedChartPoints.length;
+    trackedDayOffset = last.day_number;
   } else if (systemBaseline) {
     trackedStartUnits = Number(systemBaseline.cumulative_units_pnl ?? 0);
     trackedDayOffset = systemBaseline.total_betting_days ?? 0;

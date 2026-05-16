@@ -77,7 +77,7 @@ export default async function CapperDetail({
     supabase.from("capper_bet_entries").select("*").eq("capper_id", id).order("date").order("created_at"),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
     supabase.from("capper_baselines").select("*").eq("capper_id", id).maybeSingle(),
-    supabase.from("chart_baseline_points").select("*").eq("capper_id", id).order("date"),
+    supabase.from("chart_baseline_points").select("*").eq("capper_id", id).order("day_number"),
   ]);
 
   if (!capper) notFound();
@@ -104,24 +104,24 @@ export default async function CapperDetail({
    *      imported point's cumulative.
    *   2. Otherwise fall back to the single-anchor baseline behavior.
    */
-  const sortedChartPoints = [...chartPoints].sort((a, b) =>
-    a.date < b.date ? -1 : 1,
+  const sortedChartPoints = [...chartPoints].sort(
+    (a, b) => a.day_number - b.day_number,
   );
   const chartData: { day: number; date: string; cumulativeUnits: number; trendline: number | null }[] = [];
   let trackedStartUnits = 0;
   let trackedDayOffset = 0;
   if (sortedChartPoints.length > 0) {
-    sortedChartPoints.forEach((p, i) => {
+    sortedChartPoints.forEach((p) => {
       chartData.push({
-        day: i + 1,
-        date: p.date,
+        day: p.day_number,
+        date: "",
         cumulativeUnits: Number(p.cumulative_units),
         trendline: null,
       });
     });
     const last = sortedChartPoints[sortedChartPoints.length - 1];
     trackedStartUnits = Number(last.cumulative_units);
-    trackedDayOffset = sortedChartPoints.length;
+    trackedDayOffset = last.day_number;
   } else if (baseline) {
     trackedStartUnits = Number(baseline.cumulative_units_pnl ?? 0);
     trackedDayOffset = baseline.total_betting_days ?? 0;

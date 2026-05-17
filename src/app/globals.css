@@ -56,6 +56,9 @@ body::before {
   .btn-danger {
     @apply btn bg-bad/15 border border-bad/40 text-bad hover:bg-bad/25;
   }
+  .btn-edit {
+    @apply btn bg-accent/15 border border-accent/40 text-accent hover:bg-accent/25;
+  }
   .input {
     @apply w-full rounded-md bg-bg-panel border border-border px-3 py-2 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent;
   }

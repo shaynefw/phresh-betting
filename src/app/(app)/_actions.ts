@@ -308,6 +308,41 @@ export async function deleteBet(betId: string, systemId: string, capperId: strin
   return { ok: true };
 }
 
+export async function updateBet(input: {
+  betId: string;
+  capperId: string;
+  systemId: string;
+  wager_amount: number;
+  odds: number | null;
+  bet_result: "win" | "loss" | "void";
+  amount_pnl: number;
+  notes: string | null;
+}) {
+  if (!(await ownsSystem(input.systemId))) {
+    return { error: "Access denied" };
+  }
+  const sb = createAdminClient();
+  // The trg_after_cbe trigger fires on UPDATE and auto-recomputes capper
+  // rollups + journal, so no extra recompute work is needed here.
+  const { error } = await sb
+    .from("capper_bet_entries")
+    .update({
+      wager_amount: input.wager_amount,
+      odds: input.odds,
+      bet_result: input.bet_result,
+      amount_pnl: input.amount_pnl,
+      notes: input.notes,
+    })
+    .eq("id", input.betId)
+    .eq("system_id", input.systemId);
+  if (error) return { error: error.message };
+  revalidatePath(`/cappers/${input.capperId}`);
+  revalidatePath("/cappers");
+  revalidatePath("/dashboard");
+  revalidatePath("/journal");
+  return { ok: true };
+}
+
 interface BackupPayload {
   system: { name: string };
   scaling: Array<Record<string, unknown>>;

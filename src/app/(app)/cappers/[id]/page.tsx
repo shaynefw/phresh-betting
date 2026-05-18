@@ -14,7 +14,7 @@ import type {
 import ChartBaselineImporter from "@/components/ChartBaselineImporter";
 import { activeScalingRow } from "@/lib/calc";
 import { combineWithDays } from "@/lib/baseline";
-import { fmtMoney, fmtPct, fmtUnits, pctClass, todayISO } from "@/lib/utils";
+import { fmtMoney, fmtPct, fmtUnits, fmtWinLoss, pctClass, todayISO } from "@/lib/utils";
 import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import { linearRegression } from "@/lib/regression";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
@@ -322,6 +322,7 @@ export default async function CapperDetail({
                 <th className="text-right">$ PnL</th>
                 <th className="text-right">Units</th>
                 <th className="text-right">ROI</th>
+                <th className="text-right">Win Rate</th>
                 <th className="text-right">Cum Units</th>
                 <th className="text-right">Run ROI</th>
                 <th></th>
@@ -330,7 +331,7 @@ export default async function CapperDetail({
             <tbody>
               {dayRows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center text-ink-dim py-6">
+                  <td colSpan={11} className="text-center text-ink-dim py-6">
                     No days yet. Use “Add Date” on the left.
                   </td>
                 </tr>
@@ -351,6 +352,13 @@ export default async function CapperDetail({
                   </td>
                   <td className={`text-right ${pctClass(d.daily_roi_percent)}`}>
                     {fmtPct(d.daily_roi_percent)}
+                  </td>
+                  <td
+                    className={`text-right ${pctClass(
+                      Number(d.wins ?? 0) - Number(d.losses ?? 0),
+                    )}`}
+                  >
+                    {fmtWinLoss(Number(d.wins ?? 0), Number(d.losses ?? 0))}
                   </td>
                   <td className={`text-right ${pctClass(d.cumulative_units_pnl)}`}>
                     {fmtUnits(d.cumulative_units_pnl)}

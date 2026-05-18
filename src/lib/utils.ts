@@ -24,6 +24,24 @@ export function fmtPct(n: number, digits = 2): string {
   return `${sign}${Math.abs(n).toFixed(digits)}%`;
 }
 
+/**
+ * "3-2 (60%)" — formats wins / losses + the win rate as a single string.
+ * Mirrors the display style already used in PerformanceSummary, so the
+ * per-day win-rate column matches the aggregated win-rate KPI.
+ *
+ * - Pushes / voids / pending / cancelled bets must NOT be passed here.
+ *   `wins` and `losses` already exclude those (the recompute_capper SQL
+ *   trigger only counts bet_result = 'win' or 'loss').
+ * - 0-0 → safe "0-0 (0%)" fallback rather than NaN%.
+ */
+export function fmtWinLoss(wins: number, losses: number): string {
+  const w = Math.max(0, Math.round(Number(wins) || 0));
+  const l = Math.max(0, Math.round(Number(losses) || 0));
+  const graded = w + l;
+  const pct = graded === 0 ? 0 : Math.round((w / graded) * 100);
+  return `${w}-${l} (${pct}%)`;
+}
+
 export function pctClass(n: number): string {
   if (n > 0) return "text-good";
   if (n < 0) return "text-bad";

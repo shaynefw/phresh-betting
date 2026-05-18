@@ -87,6 +87,11 @@ body::before {
   .pill-warn { @apply pill bg-warn/15 text-warn; }
   .pill-info { @apply pill bg-accent/15 text-accent; }
   .pill-mute { @apply pill bg-muted/15 text-ink-dim; }
+  /* Unresolved / pending bets — purple, distinct from warn-amber so it
+     reads as "needs follow-up" rather than "warning". */
+  .pill-pending {
+    @apply pill bg-pending/15 text-pending border border-pending/30;
+  }
 }
 
 /* recharts dark tweaks */

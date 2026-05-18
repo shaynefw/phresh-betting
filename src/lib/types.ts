@@ -2,7 +2,14 @@ export type UUID = string;
 
 export type StreakType = "green" | "red" | "neutral_hold";
 export type EntryMode = "daily_totals" | "bet_level";
-export type BetResult = "win" | "loss" | "void";
+/**
+ * `pending` is a bet that has been logged (wager + odds + notes) but whose
+ * outcome / $ PnL is not yet known. Pending bets are excluded from every
+ * rollup (daily totals, cumulative units, journal, performance summary)
+ * until the user edits them and resolves to win / loss / void. See
+ * `recompute_capper()` in 0010_pending_bet_result.sql for the SQL side.
+ */
+export type BetResult = "win" | "loss" | "void" | "pending";
 export type Phase = "heater" | "lukewarm" | "cold";
 export type Checklist = "started" | "complete";
 

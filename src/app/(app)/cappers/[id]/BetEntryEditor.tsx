@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { addBet, deleteBet, updateBet } from "../../_actions";
 import type { CapperBetEntry, CapperDayEntry } from "@/lib/types";
 import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
-import { Trash2, Plus, Pencil, Check, X } from "lucide-react";
+import { Trash2, Plus, Pencil, Check, X, Clock } from "lucide-react";
 
 interface Props {
   day: CapperDayEntry;
@@ -14,15 +14,19 @@ interface Props {
   systemId: string;
 }
 
+type Result = "win" | "loss" | "void" | "pending";
+
 /**
  * Compute amount_pnl from American odds + wager + result.
- * Returns null only if odds or wager is missing (caller falls back to manual).
+ * Returns null when result is "pending" (PnL is intentionally undefined until
+ * the bet is resolved) or when odds/wager are missing.
  */
 function autoPnl(
   wager: number,
   odds: number | null,
-  result: "win" | "loss" | "void",
+  result: Result,
 ): number | null {
+  if (result === "pending") return null;
   if (!odds || !wager) return null;
   if (result === "win") {
     return odds > 0 ? (wager * odds) / 100 : (wager * 100) / Math.abs(odds);
@@ -38,7 +42,7 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
   // -- Add-bet form state --
   const [wager, setWager] = useState("");
   const [odds, setOdds] = useState("");
-  const [result, setResult] = useState<"win" | "loss" | "void">("win");
+  const [result, setResult] = useState<Result>("win");
   const [pnl, setPnl] = useState("");
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -47,18 +51,24 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [eWager, setEWager] = useState("");
   const [eOdds, setEOdds] = useState("");
-  const [eResult, setEResult] = useState<"win" | "loss" | "void">("win");
+  const [eResult, setEResult] = useState<Result>("win");
   const [ePnl, setEPnl] = useState("");
   const [eNotes, setENotes] = useState("");
   const [editErr, setEditErr] = useState<string | null>(null);
+
+  // How many bets are awaiting resolution? Surfaced in the day header so the
+  // user sees there's outstanding work without scanning every row.
+  const pendingCount = bets.filter((b) => b.bet_result === "pending").length;
 
   function startEdit(b: CapperBetEntry) {
     setEditErr(null);
     setEditingId(b.id);
     setEWager(String(b.wager_amount ?? ""));
     setEOdds(b.odds == null ? "" : String(b.odds));
-    setEResult((b.bet_result as "win" | "loss" | "void") ?? "win");
-    setEPnl(String(b.amount_pnl ?? ""));
+    setEResult((b.bet_result as Result) ?? "win");
+    // For pending rows, blank the PnL field so the user can leave it blank
+    // until they actually know the result.
+    setEPnl(b.bet_result === "pending" ? "" : String(b.amount_pnl ?? ""));
     setENotes(b.notes ?? "");
   }
 
@@ -74,9 +84,13 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
 
     const w = Number(eWager || 0);
     const o = eOdds === "" ? null : Number(eOdds);
-    // If the user blanked the PnL override, recompute from odds.
+    // Pending bets always store amount_pnl = 0. The DB recompute filters
+    // pending out of every aggregate, so the stored 0 is just a placeholder
+    // — it never contributes to totals.
     let amount_pnl: number;
-    if (ePnl === "") {
+    if (eResult === "pending") {
+      amount_pnl = 0;
+    } else if (ePnl === "") {
       const auto = autoPnl(w, o, eResult);
       amount_pnl = auto ?? 0;
     } else {
@@ -107,9 +121,14 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
   function onAdd(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    let amount_pnl = pnl === "" ? null : Number(pnl);
-    if (amount_pnl == null && odds && wager) {
-      amount_pnl = autoPnl(Number(wager), Number(odds), result);
+    // Pending: ignore any pnl input and store 0 (filtered out by DB recompute).
+    let amount_pnl: number;
+    if (result === "pending") {
+      amount_pnl = 0;
+    } else {
+      const override = pnl === "" ? null : Number(pnl);
+      amount_pnl =
+        override ?? autoPnl(Number(wager || 0), odds ? Number(odds) : null, result) ?? 0;
     }
     start(async () => {
       const res = await addBet({
@@ -120,7 +139,7 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
         wager_amount: Number(wager || 0),
         odds: odds ? Number(odds) : null,
         bet_result: result,
-        amount_pnl: amount_pnl ?? 0,
+        amount_pnl,
         notes: notes || null,
       });
       if (res.error) {
@@ -143,13 +162,27 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
     <div className="panel p-4">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <div className="kpi-label">Bet-Level — {day.date}</div>
+          <div className="kpi-label flex items-center gap-2 flex-wrap">
+            Bet-Level — {day.date}
+            {pendingCount > 0 && (
+              <span
+                className="pill-pending inline-flex items-center gap-1"
+                title={`${pendingCount} bet${pendingCount === 1 ? "" : "s"} awaiting resolution`}
+              >
+                <Clock className="h-3 w-3" />
+                {pendingCount} pending
+              </span>
+            )}
+          </div>
           <div className="text-xs text-ink-dim">
             Wager: {fmtMoney(day.wager_total)} ·{" "}
             <span className={pctClass(day.daily_amount_pnl)}>
               {fmtMoney(day.daily_amount_pnl, { sign: true })}
             </span>{" "}
             · <span className={pctClass(day.daily_units_pnl)}>{fmtUnits(day.daily_units_pnl)}</span>
+            {pendingCount > 0 && (
+              <span className="text-pending ml-1">· excludes pending</span>
+            )}
           </div>
         </div>
       </div>
@@ -173,6 +206,7 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
             {bets.map((b) => {
               const isEditing = editingId === b.id;
               if (isEditing) {
+                const showPnlInput = eResult !== "pending";
                 return (
                   <tr key={b.id}>
                     <td className="text-right">
@@ -198,22 +232,29 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
                       <select
                         className="input h-8"
                         value={eResult}
-                        onChange={(e) => setEResult(e.target.value as "win" | "loss" | "void")}
+                        onChange={(e) => setEResult(e.target.value as Result)}
                       >
                         <option value="win">win</option>
                         <option value="loss">loss</option>
                         <option value="void">void</option>
+                        <option value="pending">pending</option>
                       </select>
                     </td>
                     <td className="text-right">
-                      <input
-                        className="input h-8 text-right"
-                        type="number"
-                        step="0.01"
-                        value={ePnl}
-                        onChange={(e) => setEPnl(e.target.value)}
-                        placeholder="auto"
-                      />
+                      {showPnlInput ? (
+                        <input
+                          className="input h-8 text-right"
+                          type="number"
+                          step="0.01"
+                          value={ePnl}
+                          onChange={(e) => setEPnl(e.target.value)}
+                          placeholder="auto"
+                        />
+                      ) : (
+                        <span className="text-ink-dim text-xs italic">
+                          — not yet resolved
+                        </span>
+                      )}
                     </td>
                     <td>
                       <input
@@ -250,20 +291,39 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
                   </tr>
                 );
               }
+              const isPending = b.bet_result === "pending";
               return (
-                <tr key={b.id}>
+                <tr key={b.id} className={isPending ? "bg-pending/5" : ""}>
                   <td className="text-right">{fmtMoney(b.wager_amount)}</td>
                   <td className="text-right">{b.odds ?? "—"}</td>
                   <td>
-                    <span className={
-                      b.bet_result === "win" ? "pill-good" :
-                      b.bet_result === "loss" ? "pill-bad" : "pill-mute"
-                    }>
-                      {b.bet_result}
-                    </span>
+                    {b.bet_result === "pending" ? (
+                      <span className="pill-pending inline-flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        pending
+                      </span>
+                    ) : (
+                      <span
+                        className={
+                          b.bet_result === "win"
+                            ? "pill-good"
+                            : b.bet_result === "loss"
+                            ? "pill-bad"
+                            : "pill-mute"
+                        }
+                      >
+                        {b.bet_result}
+                      </span>
+                    )}
                   </td>
-                  <td className={`text-right ${pctClass(b.amount_pnl)}`}>
-                    {fmtMoney(b.amount_pnl, { sign: true })}
+                  <td
+                    className={
+                      isPending
+                        ? "text-right text-pending italic"
+                        : `text-right ${pctClass(b.amount_pnl)}`
+                    }
+                  >
+                    {isPending ? "— awaiting result" : fmtMoney(b.amount_pnl, { sign: true })}
                   </td>
                   <td className="text-ink-dim">{b.notes ?? ""}</td>
                   <td className="text-right">
@@ -273,8 +333,8 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
                         className="btn-edit text-xs"
                         onClick={() => startEdit(b)}
                         disabled={pending || editingId !== null}
-                        title="Edit bet"
-                        aria-label="Edit bet"
+                        title={isPending ? "Resolve this pending bet" : "Edit bet"}
+                        aria-label={isPending ? "Resolve pending bet" : "Edit bet"}
                       >
                         <Pencil className="h-3 w-3" />
                       </button>
@@ -308,20 +368,39 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
         </div>
         <div>
           <label className="label">Result</label>
-          <select className="input" value={result} onChange={(e) => setResult(e.target.value as never)}>
+          <select
+            className="input"
+            value={result}
+            onChange={(e) => setResult(e.target.value as Result)}
+          >
             <option value="win">Win</option>
             <option value="loss">Loss</option>
             <option value="void">Void</option>
+            <option value="pending">Pending</option>
           </select>
         </div>
         <div>
           <label className="label">$ PnL (override)</label>
-          <input className="input" type="number" step="0.01" value={pnl} onChange={(e) => setPnl(e.target.value)} placeholder="auto" />
+          <input
+            className="input"
+            type="number"
+            step="0.01"
+            value={pnl}
+            onChange={(e) => setPnl(e.target.value)}
+            placeholder={result === "pending" ? "not needed" : "auto"}
+            disabled={result === "pending"}
+          />
         </div>
         <div className="md:col-span-2">
           <label className="label">Notes</label>
           <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
         </div>
+        {result === "pending" && (
+          <p className="text-pending text-xs md:col-span-6">
+            Pending: this bet is logged but excluded from totals and the chart
+            until you mark it Win / Loss / Void.
+          </p>
+        )}
         {err && <p className="text-bad text-sm md:col-span-6">{err}</p>}
         <div className="md:col-span-6">
           <button className="btn-primary" disabled={pending}>

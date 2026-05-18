@@ -61,7 +61,10 @@ export async function addBet(input: {
   date: string;
   wager_amount: number;
   odds: number | null;
-  bet_result: "win" | "loss" | "void";
+  bet_result: "win" | "loss" | "void" | "pending";
+  // For 'pending' bets PnL is not known yet — caller passes 0. The DB
+  // recompute_capper() filters pending out of every aggregate, so the 0
+  // never actually contributes to wager_total / daily_amount_pnl / etc.
   amount_pnl: number;
   notes: string | null;
 }) {
@@ -314,7 +317,7 @@ export async function updateBet(input: {
   systemId: string;
   wager_amount: number;
   odds: number | null;
-  bet_result: "win" | "loss" | "void";
+  bet_result: "win" | "loss" | "void" | "pending";
   amount_pnl: number;
   notes: string | null;
 }) {

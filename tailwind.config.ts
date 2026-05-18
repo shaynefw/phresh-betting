@@ -24,6 +24,9 @@ const config: Config = {
         good: "#22c55e",
         bad: "#ef4444",
         warn: "#f59e0b",
+        // Pending = unresolved bet. Purple distinguishes it from win/loss/void
+        // (green/red/grey) and from the warn-amber "Testing Phase" banner.
+        pending: "#a855f7",
         muted: "#7280a0",
         ink: {
           DEFAULT: "#e6efff",

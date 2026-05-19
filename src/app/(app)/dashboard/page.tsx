@@ -11,6 +11,7 @@ import {
   fmtMoney,
   fmtPct,
   fmtUnits,
+  fmtWinLoss,
   pctClass,
   todayISO,
 } from "@/lib/utils";
@@ -426,10 +427,21 @@ export default async function Dashboard({
             />
             <MiniStat
               label="Win Rate"
+              // Identical "W-L (pct%)" rendering as the capper daily-log
+              // column and the new journal Win Rate column. Safe for days
+              // with no graded bets (returns "0-0 (0%)").
               value={
                 dayJournal
-                  ? `${dayJournal.wins}-${dayJournal.losses} (${dayJournal.win_rate_percent.toFixed(0)}%)`
+                  ? fmtWinLoss(
+                      Number(dayJournal.wins ?? 0),
+                      Number(dayJournal.losses ?? 0),
+                    )
                   : "—"
+              }
+              tone={
+                dayJournal
+                  ? Number(dayJournal.wins ?? 0) - Number(dayJournal.losses ?? 0)
+                  : undefined
               }
             />
           </div>

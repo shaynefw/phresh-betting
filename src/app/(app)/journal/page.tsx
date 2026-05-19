@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type { JournalDayEntry } from "@/lib/types";
-import { fmtMoney, fmtPct, fmtUnits, pctClass } from "@/lib/utils";
+import { fmtMoney, fmtPct, fmtUnits, fmtWinLoss, pctClass } from "@/lib/utils";
 import ExportButton from "@/components/ExportButton";
 
 export const dynamic = "force-dynamic";
@@ -63,6 +63,7 @@ export default async function JournalPage({
                 <th className="text-right">Daily $ PnL</th>
                 <th className="text-right">Daily Units</th>
                 <th className="text-right">Daily ROI</th>
+                <th className="text-right">Win Rate</th>
                 <th className="text-right">Cum $</th>
                 <th className="text-right">Cum Units</th>
                 <th className="text-right">Run ROI</th>
@@ -83,6 +84,13 @@ export default async function JournalPage({
                   </td>
                   <td className={`text-right ${pctClass(r.daily_roi_percent)}`}>
                     {fmtPct(r.daily_roi_percent)}
+                  </td>
+                  <td
+                    className={`text-right ${pctClass(
+                      Number(r.wins ?? 0) - Number(r.losses ?? 0),
+                    )}`}
+                  >
+                    {fmtWinLoss(Number(r.wins ?? 0), Number(r.losses ?? 0))}
                   </td>
                   <td className={`text-right ${pctClass(r.cumulative_amount_pnl)}`}>
                     {fmtMoney(r.cumulative_amount_pnl, { sign: true })}
@@ -108,7 +116,7 @@ export default async function JournalPage({
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center text-ink-dim py-6">
+                  <td colSpan={11} className="text-center text-ink-dim py-6">
                     No journal entries yet.
                   </td>
                 </tr>

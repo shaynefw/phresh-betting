@@ -20,6 +20,15 @@ export interface System {
   description: string | null;
   notes: string | null;
   archived: boolean;
+  /**
+   * When TRUE (default), archived and soft-deleted cappers' historical
+   * data remains included in collective system metrics (journal,
+   * dashboard summary, cumulative units chart, scaling state, progress
+   * bars, exports). When FALSE, those cappers' days are filtered out of
+   * the SQL recompute_journal aggregation AND the dashboard TS layer.
+   * Individual capper detail pages are unaffected.
+   */
+  include_archived_in_system_metrics: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +52,15 @@ export interface Capper {
   base_system_risk_units: number;
   is_active: boolean;
   is_archived: boolean;
+  /**
+   * Soft delete. When TRUE the capper is hidden from active + archived
+   * management lists but its capper_day_entries / capper_bet_entries
+   * rows remain in the database, so historical contribution to system
+   * metrics is preserved by default. The `include_archived_in_system_
+   * metrics` system setting controls whether soft-deleted cappers
+   * actually count in collective aggregates.
+   */
+  is_deleted: boolean;
   is_testing: boolean;
   current_phase: Phase;
   checklist_status: Checklist;

@@ -60,11 +60,42 @@ async function unarchiveCapper(formData: FormData) {
   revalidatePath("/cappers");
 }
 
+/**
+ * Soft delete — never a hard DELETE.
+ * Historical capper_day_entries / capper_bet_entries remain in the
+ * database so the capper's contribution stays in the system journal
+ * + dashboard aggregates (default behavior is "include archived &
+ * deleted in system metrics"; the user can opt out in Settings).
+ * Also clears `is_active` / `is_archived` so the row exists in exactly
+ * one bucket (`is_deleted`) and can't appear in active/archived lists.
+ * The cappers_archive_delete_change trigger fires recompute_journal
+ * so dashboard metrics update immediately if the user has the setting
+ * turned off.
+ */
 async function deleteCapper(formData: FormData) {
   "use server";
   const id = String(formData.get("id"));
-  await createAdminClient().from("cappers").delete().eq("id", id);
+  await createAdminClient().from("cappers").update({
+    is_deleted: true,
+    is_active: false,
+    is_archived: false,
+  }).eq("id", id);
   revalidatePath("/cappers");
+  revalidatePath("/dashboard");
+  revalidatePath("/journal");
+}
+
+async function restoreCapper(formData: FormData) {
+  "use server";
+  const id = String(formData.get("id"));
+  await createAdminClient().from("cappers").update({
+    is_deleted: false,
+    is_active: true,
+    is_archived: false,
+  }).eq("id", id);
+  revalidatePath("/cappers");
+  revalidatePath("/dashboard");
+  revalidatePath("/journal");
 }
 
 export default async function CappersPage() {
@@ -118,11 +149,20 @@ export default async function CappersPage() {
     return { greenDays, redDays, dayWinRate, cumUnits, runRoi };
   }
 
+  // Active management list: visible, manageable cappers — excludes both
+  // archived AND soft-deleted (those have their own sections / are hidden).
   const active = list
-    .filter((c) => !c.is_archived)
+    .filter((c) => !c.is_archived && !c.is_deleted)
     .map((c) => ({ c, stats: statsFor(c.id) }))
     .sort((a, b) => b.stats.cumUnits - a.stats.cumUnits);
-  const archived = list.filter((c) => c.is_archived);
+  // Archived only — excludes soft-deleted (treat archive and delete as
+  // separate management buckets even though both default-include in
+  // system metrics).
+  const archived = list.filter((c) => c.is_archived && !c.is_deleted);
+  // Soft-deleted — historical data still contributing to system metrics
+  // by default. User can Restore to bring them back as Active, or flip
+  // the Settings toggle to exclude them from collective metrics.
+  const deleted = list.filter((c) => c.is_deleted);
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6">
@@ -317,7 +357,11 @@ export default async function CappersPage() {
 
       {archived.length > 0 && (
         <div className="panel p-5">
-          <h3 className="kpi-label mb-3">Archived</h3>
+          <h3 className="kpi-label mb-1">Archived</h3>
+          <p className="text-xs text-ink-dim mb-3">
+            Hidden from active management. Historical data still counts toward
+            system-wide metrics by default (controlled in Settings).
+          </p>
           <div className="divide-y divide-border">
             {archived.map((c) => (
               <div key={c.id} className="py-2 flex items-center justify-between">
@@ -325,11 +369,36 @@ export default async function CappersPage() {
                 <div className="flex gap-2">
                   <form action={unarchiveCapper}>
                     <input type="hidden" name="id" value={c.id} />
-                    <button className="btn-ghost text-xs">Restore</button>
+                    <button className="btn-ghost text-xs">Unarchive</button>
                   </form>
                   <form action={deleteCapper}>
                     <input type="hidden" name="id" value={c.id} />
-                    <button className="btn-danger text-xs">Delete forever</button>
+                    <button className="btn-danger text-xs">Delete</button>
+                  </form>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {deleted.length > 0 && (
+        <div className="panel p-5">
+          <h3 className="kpi-label mb-1">Deleted</h3>
+          <p className="text-xs text-ink-dim mb-3">
+            Removed from active and archived management. Historical days +
+            bets are preserved and continue to contribute to system metrics
+            by default. Toggle "Include archived &amp; deleted cappers in
+            system-wide metrics" in Settings to exclude them.
+          </p>
+          <div className="divide-y divide-border">
+            {deleted.map((c) => (
+              <div key={c.id} className="py-2 flex items-center justify-between">
+                <div className="font-medium text-ink-dim">{c.name}</div>
+                <div className="flex gap-2">
+                  <form action={restoreCapper}>
+                    <input type="hidden" name="id" value={c.id} />
+                    <button className="btn-ghost text-xs">Restore</button>
                   </form>
                 </div>
               </div>

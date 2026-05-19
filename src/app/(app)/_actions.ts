@@ -355,6 +355,8 @@ interface BackupPayload {
     base_system_risk_units: number;
     is_active: boolean;
     is_archived: boolean;
+    /** v6+ — soft delete preserves historical data. Optional for backwards compat. */
+    is_deleted?: boolean;
     is_testing?: boolean;
     current_phase: string;
     checklist_status: string;
@@ -488,6 +490,8 @@ export async function importBackup(systemId: string, payloadJson: string) {
         base_system_risk_units: c.base_system_risk_units,
         is_active: c.is_active,
         is_archived: c.is_archived,
+        // Older v5- backups don't have is_deleted; defaults to false.
+        is_deleted: c.is_deleted ?? false,
         is_testing: c.is_testing ?? false,
         current_phase: c.current_phase,
         checklist_status: c.checklist_status,

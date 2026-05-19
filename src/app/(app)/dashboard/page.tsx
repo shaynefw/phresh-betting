@@ -84,14 +84,23 @@ export default async function Dashboard({
   const systemBaselineRaw = (systemBaselineRow ?? null) as SystemBaseline | null;
   const chartPoints = (chartPointRows ?? []) as ChartBaselinePoint[];
 
-  // System-level math: include ALL non-archived cappers' baselines
-  // regardless of testing state. Testing is now per-entry (capper_day_
-  // entries.excluded_from_system snapshot at INSERT time) — pre-existing
-  // baseline data is "pre-testing" by definition, so it always counts.
-  const activeCapperIds = new Set(
-    capperRows.filter((c) => !c.is_archived).map((c) => c.id),
+  // System-level math: by default INCLUDE archived AND soft-deleted
+  // cappers' baselines so the dashboard cumulative units, $ profit,
+  // streak math, and progress bars never silently rewrite themselves
+  // when a capper is archived or deleted. Users who want to exclude
+  // those cappers can flip
+  // systems.include_archived_in_system_metrics off in Settings.
+  // (Testing-Phase exclusion is per-entry on capper_day_entries; it's
+  // applied at the SQL layer by recompute_journal.)
+  const includeArchived = system?.include_archived_in_system_metrics !== false;
+  const eligibleCapperIds = new Set(
+    capperRows
+      .filter((c) =>
+        includeArchived ? true : !c.is_archived && !c.is_deleted,
+      )
+      .map((c) => c.id),
   );
-  const activeBaselines = baselines.filter((b) => activeCapperIds.has(b.capper_id));
+  const activeBaselines = baselines.filter((b) => eligibleCapperIds.has(b.capper_id));
   const baselineByCapper = new Map<string, CapperBaseline>();
   for (const b of activeBaselines) baselineByCapper.set(b.capper_id, b);
   // aggregate folds in the optional system-level baseline too
@@ -203,9 +212,14 @@ export default async function Dashboard({
     const baseUnits = Number(baselineByCapper.get(d.capper_id)?.cumulative_units_pnl ?? 0);
     cumByCapper.set(d.capper_id, baseUnits + Number(d.cumulative_units_pnl));
   }
-  // include baseline-only cappers (no tracked days yet)
+  // include baseline-only cappers (no tracked days yet). Soft-deleted
+  // cappers are never shown in the per-capper management list even
+  // when the setting includes them in collective metrics — only
+  // archived cappers stay visible if they're still in the eligible set
+  // (so the user can see what's contributing).
   for (const c of capperRows) {
-    if (c.is_archived) continue;
+    if (c.is_deleted) continue;
+    if (!includeArchived && c.is_archived) continue;
     if (!cumByCapper.has(c.id)) {
       const b = baselineByCapper.get(c.id);
       cumByCapper.set(c.id, Number(b?.cumulative_units_pnl ?? 0));
@@ -448,7 +462,15 @@ export default async function Dashboard({
             </div>
           )}
           {capperRows
-            .filter((c) => !c.is_archived)
+            // Hide soft-deleted from the per-capper management list at
+            // all times — their data is still in totals above when
+            // include_archived_in_system_metrics is on, but they
+            // shouldn't clutter the active-management panel.
+            // Archived cappers stay visible here when their data is
+            // contributing (so the user can see what's adding up).
+            .filter((c) =>
+              !c.is_deleted && (includeArchived || !c.is_archived),
+            )
             .sort((a, b) => (cumByCapper.get(b.id) ?? 0) - (cumByCapper.get(a.id) ?? 0))
             .map((c) => {
               const cum = cumByCapper.get(c.id) ?? 0;
@@ -466,6 +488,14 @@ export default async function Dashboard({
                     </Link>
                     {c.is_testing && (
                       <span className="pill-warn text-[10px]">Testing</span>
+                    )}
+                    {c.is_archived && (
+                      <span
+                        className="pill-mute text-[10px]"
+                        title="Archived — historical data still contributing to system metrics (toggle in Settings to exclude)"
+                      >
+                        Archived
+                      </span>
                     )}
                   </div>
                   <div className={`col-span-3 text-right font-mono ${pctClass(cum)}`}>

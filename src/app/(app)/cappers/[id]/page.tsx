@@ -72,6 +72,11 @@ export default async function CapperDetail({
     { data: scaling },
     { data: baselineRow },
     { data: chartPointRows },
+    // System-wide bet notes for the autocomplete suggestion source. We pull
+    // just the `notes` column from every capper in the active system (not
+    // only this capper) so the predictive notes assistant learns across
+    // the whole roster. Empty / null notes filtered out at the DB.
+    { data: noteRows },
   ] = await Promise.all([
     supabase.from("cappers").select("*").eq("id", id).single(),
     supabase.from("capper_day_entries").select("*").eq("capper_id", id).order("date"),
@@ -79,6 +84,12 @@ export default async function CapperDetail({
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
     supabase.from("capper_baselines").select("*").eq("capper_id", id).maybeSingle(),
     supabase.from("chart_baseline_points").select("*").eq("capper_id", id).order("day_number"),
+    supabase
+      .from("capper_bet_entries")
+      .select("notes")
+      .eq("system_id", sysId)
+      .not("notes", "is", null)
+      .neq("notes", ""),
   ]);
 
   if (!capper) notFound();
@@ -88,6 +99,54 @@ export default async function CapperDetail({
   const dayRows = (days ?? []) as CapperDayEntry[];
   const betRows = (bets ?? []) as CapperBetEntry[];
   const scalingRows = (scaling ?? []) as ScalingLogEntry[];
+
+  /**
+   * Build the note autocomplete suggestion list.
+   *
+   *   - Canonicalize each historical note (trim + collapse internal
+   *     whitespace) so "Castillo Over 1.5" and "Castillo  Over 1.5" don't
+   *     show up twice.
+   *   - Group by the canonical lowercase form so casing differences
+   *     don't double-list either; pick the most common original casing
+   *     as the displayed value.
+   *   - Sort by frequency desc, then alphabetically for stable ordering.
+   *   - Cap at 500 entries so even very large note histories stay snappy
+   *     and the page payload stays small.
+   */
+  const noteSuggestions: string[] = (() => {
+    type Bucket = { count: number; byCasing: Map<string, number> };
+    const buckets = new Map<string, Bucket>();
+    for (const r of (noteRows ?? []) as { notes: string | null }[]) {
+      const raw = (r.notes ?? "").replace(/\s+/g, " ").trim();
+      if (raw.length === 0) continue;
+      const key = raw.toLowerCase();
+      let b = buckets.get(key);
+      if (!b) {
+        b = { count: 0, byCasing: new Map() };
+        buckets.set(key, b);
+      }
+      b.count += 1;
+      b.byCasing.set(raw, (b.byCasing.get(raw) ?? 0) + 1);
+    }
+    const out: { display: string; count: number }[] = [];
+    for (const b of buckets.values()) {
+      // Pick the most frequently used original casing as the canonical
+      // display value (handles "castillo" vs "Castillo" gracefully).
+      let display = "";
+      let best = -1;
+      for (const [casing, n] of b.byCasing.entries()) {
+        if (n > best) {
+          best = n;
+          display = casing;
+        }
+      }
+      out.push({ display, count: b.count });
+    }
+    out.sort((a, b) =>
+      b.count - a.count || a.display.localeCompare(b.display, undefined, { sensitivity: "base" }),
+    );
+    return out.slice(0, 500).map((x) => x.display);
+  })();
   const baseline = (baselineRow ?? null) as CapperBaseline | null;
   const chartPoints = (chartPointRows ?? []) as ChartBaselinePoint[];
   const today = todayISO();
@@ -391,6 +450,7 @@ export default async function CapperDetail({
             bets={betsByDay.get(d.id) ?? []}
             capperId={c.id}
             systemId={sysId}
+            noteSuggestions={noteSuggestions}
           />
         ))}
     </div>

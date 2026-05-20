@@ -6,12 +6,15 @@ import { addBet, deleteBet, updateBet } from "../../_actions";
 import type { CapperBetEntry, CapperDayEntry } from "@/lib/types";
 import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
 import { Trash2, Plus, Pencil, Check, X, Clock } from "lucide-react";
+import BetNotesAutocomplete from "@/components/BetNotesAutocomplete";
 
 interface Props {
   day: CapperDayEntry;
   bets: CapperBetEntry[];
   capperId: string;
   systemId: string;
+  /** System-wide deduped + frequency-sorted bet notes for autocomplete. */
+  noteSuggestions: string[];
 }
 
 type Result = "win" | "loss" | "void" | "pending";
@@ -35,7 +38,13 @@ function autoPnl(
   return 0; // void
 }
 
-export default function BetEntryEditor({ day, bets, capperId, systemId }: Props) {
+export default function BetEntryEditor({
+  day,
+  bets,
+  capperId,
+  systemId,
+  noteSuggestions,
+}: Props) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
@@ -257,10 +266,11 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
                       )}
                     </td>
                     <td>
-                      <input
-                        className="input h-8"
+                      <BetNotesAutocomplete
                         value={eNotes}
-                        onChange={(e) => setENotes(e.target.value)}
+                        onChange={setENotes}
+                        suggestions={noteSuggestions}
+                        size="compact"
                       />
                     </td>
                     <td className="text-right">
@@ -393,7 +403,11 @@ export default function BetEntryEditor({ day, bets, capperId, systemId }: Props)
         </div>
         <div className="md:col-span-2">
           <label className="label">Notes</label>
-          <input className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <BetNotesAutocomplete
+            value={notes}
+            onChange={setNotes}
+            suggestions={noteSuggestions}
+          />
         </div>
         {result === "pending" && (
           <p className="text-pending text-xs md:col-span-6">

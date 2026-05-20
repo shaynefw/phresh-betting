@@ -14,7 +14,16 @@ import type {
 import ChartBaselineImporter from "@/components/ChartBaselineImporter";
 import { activeScalingRow } from "@/lib/calc";
 import { combineWithDays } from "@/lib/baseline";
-import { fmtMoney, fmtPct, fmtUnits, fmtWinLoss, pctClass, todayISO } from "@/lib/utils";
+import {
+  fmtAmericanOdds,
+  fmtMoney,
+  fmtPct,
+  fmtUnits,
+  fmtWinLoss,
+  pctClass,
+  todayISO,
+} from "@/lib/utils";
+import { averageAmericanOdds } from "@/lib/odds";
 import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import { linearRegression } from "@/lib/regression";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
@@ -242,6 +251,29 @@ export default async function CapperDetail({
     betsByDay.set(b.capper_day_entry_id, arr);
   }
 
+  /**
+   * Average Odds metrics.
+   *
+   * Per-day map keyed by capper_day_entries.id — populated from the bets
+   * belonging to each day. Days with no bets (or no bets carrying odds —
+   * e.g. daily-totals mode, or bet-level days where the user logged
+   * wagers without odds) get null and render "—" in the daily log.
+   *
+   * Lifetime aggregate across every tracked bet on this capper. Imported
+   * baseline data has no individual bet records, so it can't contribute
+   * to this metric — the value reflects tracked bets only.
+   *
+   * averageAmericanOdds() converts each entry to decimal odds, means
+   * those, and converts back to American — the only mathematically valid
+   * way to mean non-linear American odds.
+   */
+  const dailyAvgOddsByDay = new Map<string, number | null>();
+  for (const d of dayRows) {
+    const bets = betsByDay.get(d.id) ?? [];
+    dailyAvgOddsByDay.set(d.id, averageAmericanOdds(bets.map((b) => b.odds)));
+  }
+  const lifetimeAvgOdds = averageAmericanOdds(betRows.map((b) => b.odds));
+
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="capper-root">
       <header className="flex items-end justify-between gap-3">
@@ -336,6 +368,7 @@ export default async function CapperDetail({
           currentStreakValue={combined.currentStreakValue}
           maxWinStreak={combined.maxWinStreak}
           maxLossStreak={combined.maxLossStreak}
+          lifetimeAvgOdds={lifetimeAvgOdds}
         />
 
         {baseline ? (
@@ -396,6 +429,7 @@ export default async function CapperDetail({
                 <th>Date</th>
                 <th>Mode</th>
                 <th className="text-right">Bets</th>
+                <th className="text-right">Avg Odds</th>
                 <th className="text-right">Wager</th>
                 <th className="text-right">$ PnL</th>
                 <th className="text-right">Units</th>
@@ -409,7 +443,7 @@ export default async function CapperDetail({
             <tbody>
               {dayRows.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="text-center text-ink-dim py-6">
+                  <td colSpan={12} className="text-center text-ink-dim py-6">
                     No days yet. Use “Add Date” on the left.
                   </td>
                 </tr>
@@ -421,6 +455,9 @@ export default async function CapperDetail({
                     {d.entry_mode === "bet_level" ? "Bet-level" : "Daily"}
                   </td>
                   <td className="text-right">{d.bet_count}</td>
+                  <td className="text-right">
+                    {fmtAmericanOdds(dailyAvgOddsByDay.get(d.id) ?? null)}
+                  </td>
                   <td className="text-right">{fmtMoney(d.wager_total)}</td>
                   <td className={`text-right ${pctClass(d.daily_amount_pnl)}`}>
                     {fmtMoney(d.daily_amount_pnl, { sign: true })}

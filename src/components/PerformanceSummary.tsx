@@ -1,4 +1,4 @@
-import { fmtMoney, fmtPct, fmtUnits } from "@/lib/utils";
+import { fmtAmericanOdds, fmtMoney, fmtPct, fmtUnits } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Activity } from "lucide-react";
 
 interface Props {
@@ -23,6 +23,13 @@ interface Props {
   currentStreakValue: number;
   maxWinStreak: number;
   maxLossStreak: number;
+  /**
+   * Lifetime average American odds across every recorded bet for this
+   * capper. Optional — pass null (or omit) when there are no bets with
+   * odds; the row renders "—" and the metric is hidden from baseline-
+   * only callers (e.g. the dashboard system-wide summary).
+   */
+  lifetimeAvgOdds?: number | null;
   /** Optional badge (e.g. "+ baseline") shown next to the title */
   badge?: React.ReactNode;
 }
@@ -80,6 +87,12 @@ export default function PerformanceSummary(p: Props) {
         />
         <Row label="Max Win Streak" tone={1} value={p.maxWinStreak} />
         <Row label="Max Loss Streak" tone={-1} value={p.maxLossStreak} />
+        {p.lifetimeAvgOdds !== undefined && (
+          <Row
+            label="Avg Odds (Lifetime)"
+            value={fmtAmericanOdds(p.lifetimeAvgOdds)}
+          />
+        )}
         <div className="text-ink-dim">Current Streak</div>
         <div
           className={`text-right font-mono flex items-center justify-end gap-2 ${

@@ -10,7 +10,15 @@ import type {
   ScalingLogEntry,
 } from "@/lib/types";
 import { activeScalingRow } from "@/lib/calc";
-import { fmtMoney, fmtPct, fmtUnits, pctClass, todayISO } from "@/lib/utils";
+import {
+  fmtAmericanOdds,
+  fmtMoney,
+  fmtPct,
+  fmtUnits,
+  pctClass,
+  todayISO,
+} from "@/lib/utils";
+import { averageAmericanOdds } from "@/lib/odds";
 import AutoSubmitSelect from "@/components/AutoSubmitSelect";
 
 export const dynamic = "force-dynamic";
@@ -108,12 +116,21 @@ export default async function CappersPage() {
     { data: scaling },
     { data: dayRows },
     { data: baselineRows },
+    // Skinny fetch for the lifetime Avg Odds metric — we only need
+    // (capper_id, odds), not the whole bet rows. Filters out null /
+    // empty odds at the DB to keep the payload tight.
+    { data: betOdds },
   ] = await Promise.all([
     supabase.from("cappers").select("*").eq("system_id", sysId)
       .order("sort_order").order("created_at"),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
     supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
+    supabase
+      .from("capper_bet_entries")
+      .select("capper_id, odds")
+      .eq("system_id", sysId)
+      .not("odds", "is", null),
   ]);
 
   const list = (cappers ?? []) as Capper[];
@@ -126,6 +143,23 @@ export default async function CappersPage() {
 
   const baselineByCapper = new Map<string, CapperBaseline>();
   for (const b of baselines) baselineByCapper.set(b.capper_id, b);
+
+  // Group bet odds by capper for lifetime Avg Odds (mean in decimal space,
+  // converted back to American). Cappers with no tracked bets — or no
+  // tracked bets carrying odds — get null and render as "—".
+  const oddsByCapper = new Map<string, Array<number | null>>();
+  for (const r of (betOdds ?? []) as Array<{ capper_id: string; odds: number | null }>) {
+    const arr = oddsByCapper.get(r.capper_id) ?? [];
+    arr.push(r.odds);
+    oddsByCapper.set(r.capper_id, arr);
+  }
+  const lifetimeAvgOddsByCapper = new Map<string, number | null>();
+  for (const c of list) {
+    lifetimeAvgOddsByCapper.set(
+      c.id,
+      averageAmericanOdds(oddsByCapper.get(c.id) ?? []),
+    );
+  }
 
   // per-capper combined metrics (baseline + tracked)
   function statsFor(capperId: string) {
@@ -146,7 +180,11 @@ export default async function CappersPage() {
     const totalRisk = Number(b?.total_risk ?? 0) + trackedRisk;
     const totalAmt = Number(b?.cumulative_amount_pnl ?? 0) + trackedAmt;
     const runRoi = totalRisk === 0 ? trackedRoi : (totalAmt / totalRisk) * 100;
-    return { greenDays, redDays, dayWinRate, cumUnits, runRoi };
+    // Lifetime average American odds — tracked bets only (baseline rows
+    // don't store individual odds). Null when this capper has no tracked
+    // bets carrying odds yet.
+    const lifetimeAvgOdds = lifetimeAvgOddsByCapper.get(capperId) ?? null;
+    return { greenDays, redDays, dayWinRate, cumUnits, runRoi, lifetimeAvgOdds };
   }
 
   // Active management list: visible, manageable cappers — excludes both
@@ -232,6 +270,10 @@ export default async function CappersPage() {
                   <div className="kpi-label text-[9px]">Day Win Rate</div>
                   <div>{stats.greenDays}-{stats.redDays} ({stats.dayWinRate.toFixed(0)}%)</div>
                 </div>
+                <div>
+                  <div className="kpi-label text-[9px]">Avg Odds</div>
+                  <div>{fmtAmericanOdds(stats.lifetimeAvgOdds)}</div>
+                </div>
               </div>
               <div className="flex gap-2">
                 <form action={updatePhase} className="flex-1">
@@ -276,6 +318,7 @@ export default async function CappersPage() {
                 <th className="text-right">Cumulative Units</th>
                 <th className="text-right">ROI</th>
                 <th className="text-right">Day Win Rate</th>
+                <th className="text-right">Avg Odds</th>
                 <th></th>
               </tr>
             </thead>
@@ -333,6 +376,9 @@ export default async function CappersPage() {
                     </td>
                     <td className="text-right font-mono">
                       {stats.greenDays}-{stats.redDays} ({stats.dayWinRate.toFixed(0)}%)
+                    </td>
+                    <td className="text-right font-mono">
+                      {fmtAmericanOdds(stats.lifetimeAvgOdds)}
                     </td>
                     <td className="text-right">
                       <form action={archiveCapper} className="inline-block">

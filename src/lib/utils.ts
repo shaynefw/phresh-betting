@@ -25,6 +25,18 @@ export function fmtPct(n: number, digits = 2): string {
 }
 
 /**
+ * "+150" / "-110" / "—" — American-odds formatter for the Avg Odds metric
+ * and any other place that displays raw American odds. Rounds to the
+ * nearest integer (American odds are conventionally whole numbers) and
+ * gracefully falls back to em-dash for null / NaN / 0.
+ */
+export function fmtAmericanOdds(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n === 0) return "—";
+  const rounded = Math.round(Number(n));
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
+/**
  * "3-2 (60%)" — formats wins / losses + the win rate as a single string.
  * Mirrors the display style already used in PerformanceSummary, so the
  * per-day win-rate column matches the aggregated win-rate KPI.

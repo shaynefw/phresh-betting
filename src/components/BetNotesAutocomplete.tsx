@@ -7,117 +7,75 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type ChangeEvent,
+  type KeyboardEvent,
+  type SyntheticEvent,
 } from "react";
 
 /**
- * Smart autocomplete for the bet-level Notes field.
+ * Word-by-word predictive autocomplete for the bet-level Notes field.
  *
- * Suggestions come from the parent (server-fetched + deduped + frequency-
- * sorted across every capper in the user's active system). This component
- * does the live matching, ranking, and rendering of the dropdown.
+ * Refinement of the prior full-sentence suggestor: now we never suggest
+ * full notes — only individual words drawn from the user's historical
+ * note vocabulary (across every capper in every system they own — see
+ * the server fetch in cappers/[id]/page.tsx for the pool definition).
  *
- * Matching:
- *   - Triggers when the trimmed input is at least 3 chars.
- *   - The query is split into words; ALL words must appear in a candidate
- *     note for it to match (case-insensitive substring).
- *   - Rank order:
- *       1. Word-boundary match (start of suggestion or after whitespace) wins
- *       2. Earlier-in-text match wins (lower indexOf)
- *       3. Stable on input order, so the parent's frequency sort is preserved
- *   - Up to MAX_RESULTS results shown.
- *
- * Keyboard:
- *   - ArrowDown / ArrowUp navigate
- *   - Enter or Tab accept the highlighted item — only intercepted when the
- *     dropdown is open with an active item (so the enclosing form's submit-
- *     on-Enter still works when no suggestion is selected)
- *   - Escape closes the dropdown without changing the value
- *
- * Mobile: standard <input> behavior, dropdown is `absolute`-positioned and
- * tappable; native browser autocomplete is disabled to avoid a double UI.
+ * UX rules:
+ *   - Triggers when the partial word being typed reaches MIN_WORD_LEN.
+ *   - "Current word" = the slice from the last whitespace (or string
+ *     start) up to the caret. We only suggest when the caret is at the
+ *     end of a word — i.e. the next char is whitespace or EOF — so
+ *     mid-word edits never get hijacked.
+ *   - On commit we replace ONLY the partial word with the chosen word,
+ *     then append a trailing space so the user can immediately start
+ *     typing the next word. The text after the caret is left intact.
+ *   - Matching is prefix-only (case-insensitive). Pool order is already
+ *     frequency-desc from the server, so the most-used words float to
+ *     the top of the list automatically.
+ *   - Keyboard: ArrowUp/Down navigate, Enter or Tab accept (only when
+ *     a row is highlighted — otherwise default form behavior runs), Esc
+ *     dismisses. Mouse/tap commit uses pointerdown so mobile blur
+ *     doesn't beat the click.
  */
 
-const MIN_QUERY_LEN = 3;
+const MIN_WORD_LEN = 3;
 const MAX_RESULTS = 8;
 
 interface Props {
   value: string;
   onChange: (next: string) => void;
-  /** Pre-sorted by frequency (most used first). De-duplicated by the parent. */
+  /** Pre-sorted by frequency, deduped by lowercase form. */
   suggestions: string[];
   placeholder?: string;
   className?: string;
-  /** Optional input id (useful when associating with a <label htmlFor>). */
   id?: string;
-  /** Height variant. Matches the existing input classes used in BetEntryEditor. */
   size?: "default" | "compact";
-  /** Optional name attribute for the input element (used in form data). */
   name?: string;
 }
 
-interface Match {
-  text: string;
-  score: number;
-  originalIndex: number;
-}
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/**
- * Score a candidate note against a multi-word query.
- * Returns -1 if any query word is missing (the candidate is rejected).
- * Higher scores rank higher.
- */
-function scoreMatch(note: string, queryWords: string[]): number {
-  if (queryWords.length === 0) return -1;
-  const lower = note.toLowerCase();
-  let score = 0;
-  for (const w of queryWords) {
-    const idx = lower.indexOf(w);
-    if (idx === -1) return -1;
-    // Word-boundary match wins big (start of string OR preceded by whitespace
-    // or common separators). Otherwise sub-word match.
-    const prev = idx === 0 ? " " : lower[idx - 1];
-    const atBoundary = idx === 0 || /[\s\-/(),.]/.test(prev);
-    // Earlier position = better. Boundary match adds a large bonus.
-    score += (atBoundary ? 1000 : 200) - idx;
-  }
-  return score;
+interface WordContext {
+  /** Substring from word-start up to the caret. Empty if no suggestion is valid here. */
+  prefix: string;
+  /** Inclusive start index of the current word in `value`. */
+  start: number;
+  /** Caret position in `value`. */
+  caret: number;
 }
 
 /**
- * Split a suggestion into alternating plain / highlighted tokens for rendering.
- * Builds a regex from all unique query words (longest first so "cas" doesn't
- * eat "castillo"); String.split with a capturing group returns the matched
- * substrings interleaved with the surrounding text, which we render directly.
+ * Locate the current "word in progress" given the value + caret.
+ * Returns an empty prefix if the caret is in the middle of an existing
+ * word (so we don't try to predict mid-word edits).
  */
-function highlightTokens(suggestion: string, queryWords: string[]): React.ReactNode[] {
-  if (queryWords.length === 0) return [suggestion];
-  // Dedupe + longest-first so the regex prefers longer matches when overlap
-  // exists. Filter empties to avoid the always-matching empty alternative.
-  const unique = Array.from(new Set(queryWords.filter(Boolean))).sort(
-    (a, b) => b.length - a.length,
-  );
-  if (unique.length === 0) return [suggestion];
-  const pattern = new RegExp(`(${unique.map(escapeRegExp).join("|")})`, "ig");
-  const parts = suggestion.split(pattern);
-  return parts.map((p, i) =>
-    i % 2 === 1 ? (
-      // Matched chunk
-      <mark
-        key={i}
-        className="bg-accent/25 text-accent rounded-sm px-[1px] -mx-[1px]"
-      >
-        {p}
-      </mark>
-    ) : (
-      <span key={i}>{p}</span>
-    ),
-  );
+function getWordContext(value: string, caret: number): WordContext {
+  const c = Math.max(0, Math.min(caret, value.length));
+  // Caret must be at end-of-word: either at EOF or on whitespace.
+  const atEnd = c >= value.length || /\s/.test(value[c]);
+  if (!atEnd) return { prefix: "", start: c, caret: c };
+  // Walk left until we hit whitespace (or start of string).
+  let start = c;
+  while (start > 0 && !/\s/.test(value[start - 1])) start--;
+  return { prefix: value.slice(start, c), start, caret: c };
 }
 
 export default function BetNotesAutocomplete({
@@ -133,41 +91,40 @@ export default function BetNotesAutocomplete({
   const autoId = useId();
   const listboxId = `${id ?? autoId}-listbox`;
 
+  const inputRef = useRef<HTMLInputElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Track caret position so we know which word the user is editing.
+  // Initialized to end of value; kept in sync via input onChange + onSelect.
+  const [caret, setCaret] = useState(value.length);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Parse the current query into normalized words.
-  const queryWords = useMemo(() => {
-    const trimmed = value.trim().toLowerCase();
-    if (trimmed.length < MIN_QUERY_LEN) return [] as string[];
-    return trimmed.split(/\s+/).filter(Boolean);
-  }, [value]);
+  // Clamp caret if value shrinks (e.g. external reset).
+  useEffect(() => {
+    if (caret > value.length) setCaret(value.length);
+  }, [value.length, caret]);
 
-  // Compute matches. Memoized so re-renders don't re-scan the array.
-  const matches = useMemo<Match[]>(() => {
-    if (queryWords.length === 0) return [];
-    const out: Match[] = [];
+  const ctx = useMemo(() => getWordContext(value, caret), [value, caret]);
+
+  // Compute prefix matches against the (frequency-sorted) word pool.
+  const matches = useMemo<string[]>(() => {
+    if (ctx.prefix.length < MIN_WORD_LEN) return [];
+    const needle = ctx.prefix.toLowerCase();
+    const out: string[] = [];
     for (let i = 0; i < suggestions.length; i++) {
       const s = suggestions[i];
-      const score = scoreMatch(s, queryWords);
-      if (score < 0) continue;
-      out.push({ text: s, score, originalIndex: i });
-      // Soft cap exploration so very large lists stay snappy. Once we've
-      // collected a healthy multiple of the visible limit, sort and cut.
-      if (out.length > MAX_RESULTS * 6) break;
+      // Prefix match; also skip the exact-equal case (already typed).
+      if (s.length === needle.length) continue;
+      if (s.toLowerCase().startsWith(needle)) {
+        out.push(s);
+        if (out.length >= MAX_RESULTS) break;
+      }
     }
-    out.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return a.originalIndex - b.originalIndex; // stable on frequency rank
-    });
-    return out.slice(0, MAX_RESULTS);
-  }, [queryWords, suggestions]);
+    return out;
+  }, [ctx.prefix, suggestions]);
 
-  // Keep the dropdown's open state and the active index in sync with the
-  // computed matches. We don't auto-open on focus — only when there's
-  // actually something to show.
+  // Sync dropdown open state + active index with computed matches.
   useEffect(() => {
     if (matches.length === 0) {
       setOpen(false);
@@ -175,8 +132,7 @@ export default function BetNotesAutocomplete({
       return;
     }
     setOpen(true);
-    // Reset active row to the top whenever the matches list changes shape.
-    setActiveIndex((prev) => (prev >= matches.length ? 0 : prev));
+    setActiveIndex((prev) => (prev >= matches.length || prev < 0 ? 0 : prev));
   }, [matches]);
 
   // Click-outside closes the dropdown.
@@ -192,20 +148,49 @@ export default function BetNotesAutocomplete({
     return () => document.removeEventListener("pointerdown", onDocPointer);
   }, [open]);
 
-  const commit = useCallback(
-    (text: string) => {
-      onChange(text);
+  /**
+   * Replace only the partial word with the chosen suggestion.
+   * Inserts a trailing space if one isn't already present after the
+   * caret, so the next word starts naturally. Caret lands just after
+   * the inserted word + space.
+   */
+  const commitWord = useCallback(
+    (word: string) => {
+      const { start, caret: c } = ctx;
+      const before = value.slice(0, start);
+      const after = value.slice(c);
+      const needsSpace = !after.startsWith(" ");
+      const insert = word + (needsSpace ? " " : "");
+      const next = before + insert + after;
+      const newCaret = before.length + insert.length;
+      onChange(next);
       setOpen(false);
       setActiveIndex(-1);
-      // Refocus so the user can keep typing if they want to extend the note.
-      requestAnimationFrame(() => inputRef.current?.focus());
+      // Defer caret restoration to after React commits the new value.
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(newCaret, newCaret);
+          setCaret(newCaret);
+        }
+      });
     },
-    [onChange],
+    [ctx, onChange, value],
   );
+
+  function onInputChange(e: ChangeEvent<HTMLInputElement>) {
+    onChange(e.target.value);
+    setCaret(e.target.selectionStart ?? e.target.value.length);
+  }
+
+  function onInputSelect(e: SyntheticEvent<HTMLInputElement>) {
+    const el = e.currentTarget;
+    setCaret(el.selectionStart ?? value.length);
+  }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (!open || matches.length === 0) {
-      // Esc still closes any leftover state if open
       if (e.key === "Escape") {
         setOpen(false);
         setActiveIndex(-1);
@@ -230,22 +215,16 @@ export default function BetNotesAutocomplete({
       return;
     }
     if (e.key === "Enter" || e.key === "Tab") {
-      // Only intercept when a suggestion is highlighted. If no row is
-      // active, defer to default behavior (form submit on Enter, focus
-      // next field on Tab) so we never hijack normal typing.
+      // Only intercept when an item is highlighted — otherwise let the
+      // parent form's Enter submit / Tab focus-next work normally.
       if (activeIndex >= 0 && activeIndex < matches.length) {
         e.preventDefault();
-        commit(matches[activeIndex].text);
+        commitWord(matches[activeIndex]);
       }
       return;
     }
   }
 
-  function onInputChange(e: ChangeEvent<HTMLInputElement>) {
-    onChange(e.target.value);
-  }
-
-  // Sized to mirror the existing .input utility (regular vs. h-8 in the row editor)
   const inputClass = [
     "input",
     size === "compact" ? "h-8" : "",
@@ -255,6 +234,7 @@ export default function BetNotesAutocomplete({
     .join(" ");
 
   const showDropdown = open && matches.length > 0;
+  const prefixLen = ctx.prefix.length;
 
   return (
     <div className="relative" ref={rootRef}>
@@ -268,10 +248,9 @@ export default function BetNotesAutocomplete({
         placeholder={placeholder}
         onChange={onInputChange}
         onKeyDown={onKeyDown}
-        onFocus={() => {
-          if (matches.length > 0) setOpen(true);
-        }}
-        // Disable native browser autocomplete + spellcheck UI fighting ours.
+        onSelect={onInputSelect}
+        onClick={onInputSelect}
+        onFocus={onInputSelect}
         autoComplete="off"
         autoCorrect="off"
         spellCheck={false}
@@ -297,19 +276,19 @@ export default function BetNotesAutocomplete({
             text-sm
           "
         >
-          {matches.map((m, i) => {
+          {matches.map((word, i) => {
             const isActive = i === activeIndex;
+            const head = word.slice(0, prefixLen);
+            const tail = word.slice(prefixLen);
             return (
               <li
-                key={`${m.originalIndex}-${m.text}`}
+                key={word + i}
                 id={`${listboxId}-opt-${i}`}
                 role="option"
                 aria-selected={isActive}
-                // pointerdown (not click) so the input's blur handler doesn't
-                // close the dropdown before the click registers on mobile.
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  commit(m.text);
+                  commitWord(word);
                 }}
                 onMouseEnter={() => setActiveIndex(i)}
                 className={`
@@ -321,8 +300,11 @@ export default function BetNotesAutocomplete({
                   }
                 `}
               >
-                <span className="block whitespace-pre-wrap break-words">
-                  {highlightTokens(m.text, queryWords)}
+                <span className="font-mono">
+                  <mark className="bg-accent/25 text-accent rounded-sm px-[1px] -mx-[1px]">
+                    {head}
+                  </mark>
+                  {tail}
                 </span>
               </li>
             );

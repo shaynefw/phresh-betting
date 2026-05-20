@@ -65,6 +65,12 @@ export default async function CapperDetail({
   const supabase = createAdminClient();
   const sysId = ctx.activeSystemId;
 
+  // Pool every system this user owns so the autocomplete suggestion
+  // source is truly cross-app — not scoped to the active system, and
+  // certainly not scoped to the current capper. If a user maintains
+  // multiple systems, words from all of them feed into the same pool.
+  const userSystemIds = ctx.systems.map((s) => s.id);
+
   const [
     { data: capper },
     { data: days },
@@ -72,10 +78,6 @@ export default async function CapperDetail({
     { data: scaling },
     { data: baselineRow },
     { data: chartPointRows },
-    // System-wide bet notes for the autocomplete suggestion source. We pull
-    // just the `notes` column from every capper in the active system (not
-    // only this capper) so the predictive notes assistant learns across
-    // the whole roster. Empty / null notes filtered out at the DB.
     { data: noteRows },
   ] = await Promise.all([
     supabase.from("cappers").select("*").eq("id", id).single(),
@@ -84,10 +86,11 @@ export default async function CapperDetail({
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
     supabase.from("capper_baselines").select("*").eq("capper_id", id).maybeSingle(),
     supabase.from("chart_baseline_points").select("*").eq("capper_id", id).order("day_number"),
+    // ALL of the user's bet notes across every capper in every system.
     supabase
       .from("capper_bet_entries")
       .select("notes")
-      .eq("system_id", sysId)
+      .in("system_id", userSystemIds.length > 0 ? userSystemIds : [sysId])
       .not("notes", "is", null)
       .neq("notes", ""),
   ]);
@@ -101,37 +104,51 @@ export default async function CapperDetail({
   const scalingRows = (scaling ?? []) as ScalingLogEntry[];
 
   /**
-   * Build the note autocomplete suggestion list.
+   * Build the autocomplete word pool for the bet-level Notes field.
    *
-   *   - Canonicalize each historical note (trim + collapse internal
-   *     whitespace) so "Castillo Over 1.5" and "Castillo  Over 1.5" don't
-   *     show up twice.
-   *   - Group by the canonical lowercase form so casing differences
-   *     don't double-list either; pick the most common original casing
-   *     as the displayed value.
-   *   - Sort by frequency desc, then alphabetically for stable ordering.
-   *   - Cap at 500 entries so even very large note histories stay snappy
-   *     and the page payload stays small.
+   * Refinement (per the "word-by-word" spec): we no longer suggest entire
+   * past notes — we tokenize the historical note text into individual
+   * words and suggest one word at a time. This keeps the dropdown small,
+   * fast, and predictive instead of trying to autofill whole sentences.
+   *
+   *   - Tokenize each note via a regex that grabs alphanumeric runs plus
+   *     a few connector chars (.-+/'), so things like "1.5", "+150", and
+   *     "Mike-Smith" stay intact.
+   *   - Drop tokens shorter than 3 chars (the minimum trigger length —
+   *     they could never be matched anyway).
+   *   - Dedupe by lowercase form so "Castillo" and "castillo" collapse
+   *     to one entry. The most-frequent original casing wins as the
+   *     displayed value.
+   *   - Sort by frequency desc with alphabetical tiebreak.
+   *   - Cap at 1000 unique words. Sufficient for thousands of bets and
+   *     still trivially small to ship to the client.
    */
   const noteSuggestions: string[] = (() => {
+    // Word characters + a few common inner-connectors (decimal numbers,
+    // hyphenated names, slashes, apostrophes). Trailing/leading
+    // punctuation is naturally excluded because the class doesn't match
+    // it at the boundaries.
+    const TOKEN_RE = /[A-Za-z0-9][A-Za-z0-9.+\-/']*[A-Za-z0-9]|[A-Za-z0-9]/g;
+    const MIN_WORD_LEN = 3;
     type Bucket = { count: number; byCasing: Map<string, number> };
     const buckets = new Map<string, Bucket>();
     for (const r of (noteRows ?? []) as { notes: string | null }[]) {
-      const raw = (r.notes ?? "").replace(/\s+/g, " ").trim();
-      if (raw.length === 0) continue;
-      const key = raw.toLowerCase();
-      let b = buckets.get(key);
-      if (!b) {
-        b = { count: 0, byCasing: new Map() };
-        buckets.set(key, b);
+      const text = r.notes ?? "";
+      const tokens = text.match(TOKEN_RE) ?? [];
+      for (const tok of tokens) {
+        if (tok.length < MIN_WORD_LEN) continue;
+        const key = tok.toLowerCase();
+        let b = buckets.get(key);
+        if (!b) {
+          b = { count: 0, byCasing: new Map() };
+          buckets.set(key, b);
+        }
+        b.count += 1;
+        b.byCasing.set(tok, (b.byCasing.get(tok) ?? 0) + 1);
       }
-      b.count += 1;
-      b.byCasing.set(raw, (b.byCasing.get(raw) ?? 0) + 1);
     }
     const out: { display: string; count: number }[] = [];
     for (const b of buckets.values()) {
-      // Pick the most frequently used original casing as the canonical
-      // display value (handles "castillo" vs "Castillo" gracefully).
       let display = "";
       let best = -1;
       for (const [casing, n] of b.byCasing.entries()) {
@@ -142,10 +159,12 @@ export default async function CapperDetail({
       }
       out.push({ display, count: b.count });
     }
-    out.sort((a, b) =>
-      b.count - a.count || a.display.localeCompare(b.display, undefined, { sensitivity: "base" }),
+    out.sort(
+      (a, b) =>
+        b.count - a.count ||
+        a.display.localeCompare(b.display, undefined, { sensitivity: "base" }),
     );
-    return out.slice(0, 500).map((x) => x.display);
+    return out.slice(0, 1000).map((x) => x.display);
   })();
   const baseline = (baselineRow ?? null) as CapperBaseline | null;
   const chartPoints = (chartPointRows ?? []) as ChartBaselinePoint[];

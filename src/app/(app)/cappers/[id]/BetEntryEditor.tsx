@@ -4,9 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addBet, deleteBet, updateBet } from "../../_actions";
 import type { CapperBetEntry, CapperDayEntry } from "@/lib/types";
+import { isSport, type Sport } from "@/lib/sports";
 import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
 import { Trash2, Plus, Pencil, Check, X, Clock } from "lucide-react";
 import BetNotesAutocomplete from "@/components/BetNotesAutocomplete";
+import SportIcon from "@/components/SportIcon";
+import SportSelect from "@/components/SportSelect";
 
 interface Props {
   day: CapperDayEntry;
@@ -54,6 +57,9 @@ export default function BetEntryEditor({
   const [result, setResult] = useState<Result>("win");
   const [pnl, setPnl] = useState("");
   const [notes, setNotes] = useState("");
+  // Sport defaults to null (no pre-selection) so the user actively picks one.
+  // The dropdown shows "Select sport…" until they do.
+  const [sport, setSport] = useState<Sport | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
   // -- Edit-row state --
@@ -63,6 +69,9 @@ export default function BetEntryEditor({
   const [eResult, setEResult] = useState<Result>("win");
   const [ePnl, setEPnl] = useState("");
   const [eNotes, setENotes] = useState("");
+  // Edit-row sport. Initialized from the bet being edited; null for legacy
+  // bets that have no sport assigned yet (retroactive-tagging flow).
+  const [eSport, setESport] = useState<Sport | null>(null);
   const [editErr, setEditErr] = useState<string | null>(null);
 
   // How many bets are awaiting resolution? Surfaced in the day header so the
@@ -79,6 +88,10 @@ export default function BetEntryEditor({
     // until they actually know the result.
     setEPnl(b.bet_result === "pending" ? "" : String(b.amount_pnl ?? ""));
     setENotes(b.notes ?? "");
+    // Legacy bets with no sport assigned will land here as null — the
+    // SportSelect renders its placeholder, prompting the user to retroactively
+    // tag the bet.
+    setESport(isSport(b.sport) ? (b.sport as Sport) : null);
   }
 
   function cancelEdit() {
@@ -117,6 +130,7 @@ export default function BetEntryEditor({
         bet_result: eResult,
         amount_pnl,
         notes: eNotes || null,
+        sport: eSport,
       });
       if (res.error) {
         setEditErr(res.error);
@@ -150,11 +164,15 @@ export default function BetEntryEditor({
         bet_result: result,
         amount_pnl,
         notes: notes || null,
+        sport,
       });
       if (res.error) {
         setErr(res.error);
         return;
       }
+      // Reset everything EXCEPT sport — most users log multiple bets in the
+      // same sport on the same day, so keeping the last selection sticky
+      // saves a click. (Reset notes / wager / odds / result / pnl as before.)
       setWager(""); setOdds(""); setPnl(""); setNotes(""); setResult("win");
       router.refresh();
     });
@@ -202,6 +220,7 @@ export default function BetEntryEditor({
             <tr>
               <th className="text-right">Wager</th>
               <th className="text-right">Odds</th>
+              <th>Sport</th>
               <th>Result</th>
               <th className="text-right">$ PnL</th>
               <th>Notes</th>
@@ -210,7 +229,7 @@ export default function BetEntryEditor({
           </thead>
           <tbody>
             {bets.length === 0 && (
-              <tr><td colSpan={6} className="text-center text-ink-dim py-3">No bets logged.</td></tr>
+              <tr><td colSpan={7} className="text-center text-ink-dim py-3">No bets logged.</td></tr>
             )}
             {bets.map((b) => {
               const isEditing = editingId === b.id;
@@ -235,6 +254,15 @@ export default function BetEntryEditor({
                         value={eOdds}
                         onChange={(e) => setEOdds(e.target.value)}
                         placeholder="-110"
+                      />
+                    </td>
+                    <td>
+                      {/* Retroactive sport tag for older bets — starts empty
+                          when b.sport is null. */}
+                      <SportSelect
+                        value={eSport}
+                        onChange={setESport}
+                        size="compact"
                       />
                     </td>
                     <td>
@@ -302,10 +330,21 @@ export default function BetEntryEditor({
                 );
               }
               const isPending = b.bet_result === "pending";
+              const sportTag = isSport(b.sport) ? (b.sport as Sport) : null;
               return (
                 <tr key={b.id} className={isPending ? "bg-pending/5" : ""}>
                   <td className="text-right">{fmtMoney(b.wager_amount)}</td>
                   <td className="text-right">{b.odds ?? "—"}</td>
+                  <td>
+                    {sportTag ? (
+                      <span className="inline-flex items-center gap-1.5 text-ink">
+                        <SportIcon sport={sportTag} size={13} />
+                        <span className="text-xs">{sportTag}</span>
+                      </span>
+                    ) : (
+                      <span className="text-ink-dim text-xs">—</span>
+                    )}
+                  </td>
                   <td>
                     {b.bet_result === "pending" ? (
                       <span className="pill-pending inline-flex items-center gap-1">
@@ -367,7 +406,7 @@ export default function BetEntryEditor({
         </table>
       </div>
 
-      <form onSubmit={onAdd} className="grid md:grid-cols-6 gap-2 items-end">
+      <form onSubmit={onAdd} className="grid md:grid-cols-7 gap-2 items-end">
         <div>
           <label className="label">Wager</label>
           <input className="input" type="number" step="0.01" required value={wager} onChange={(e) => setWager(e.target.value)} />
@@ -375,6 +414,10 @@ export default function BetEntryEditor({
         <div>
           <label className="label">Odds (American)</label>
           <input className="input" type="number" step="1" value={odds} onChange={(e) => setOdds(e.target.value)} placeholder="-110" />
+        </div>
+        <div>
+          <label className="label">Sport</label>
+          <SportSelect value={sport} onChange={setSport} />
         </div>
         <div>
           <label className="label">Result</label>
@@ -410,13 +453,13 @@ export default function BetEntryEditor({
           />
         </div>
         {result === "pending" && (
-          <p className="text-pending text-xs md:col-span-6">
+          <p className="text-pending text-xs md:col-span-7">
             Pending: this bet is logged but excluded from totals and the chart
             until you mark it Win / Loss / Void.
           </p>
         )}
-        {err && <p className="text-bad text-sm md:col-span-6">{err}</p>}
-        <div className="md:col-span-6">
+        {err && <p className="text-bad text-sm md:col-span-7">{err}</p>}
+        <div className="md:col-span-7">
           <button className="btn-primary" disabled={pending}>
             <Plus className="h-4 w-4" /> Add bet
           </button>

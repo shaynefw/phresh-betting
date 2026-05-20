@@ -67,6 +67,8 @@ export async function addBet(input: {
   // never actually contributes to wager_total / daily_amount_pnl / etc.
   amount_pnl: number;
   notes: string | null;
+  /** Sport tag — null if user hasn't selected one yet. */
+  sport: string | null;
 }) {
   if (!(await ownsSystem(input.systemId))) {
     return { error: "Access denied" };
@@ -82,6 +84,7 @@ export async function addBet(input: {
     bet_result: input.bet_result,
     amount_pnl: input.amount_pnl,
     notes: input.notes,
+    sport: input.sport,
   });
   if (error) return { error: error.message };
   revalidatePath(`/cappers/${input.capperId}`);
@@ -320,6 +323,8 @@ export async function updateBet(input: {
   bet_result: "win" | "loss" | "void" | "pending";
   amount_pnl: number;
   notes: string | null;
+  /** Sport tag — pass null to clear; this is the retroactive-tagging path. */
+  sport: string | null;
 }) {
   if (!(await ownsSystem(input.systemId))) {
     return { error: "Access denied" };
@@ -335,6 +340,7 @@ export async function updateBet(input: {
       bet_result: input.bet_result,
       amount_pnl: input.amount_pnl,
       notes: input.notes,
+      sport: input.sport,
     })
     .eq("id", input.betId)
     .eq("system_id", input.systemId);
@@ -387,6 +393,8 @@ interface BackupPayload {
     amount_pnl: number;
     units_risk_multiplier?: number | null;
     notes?: string | null;
+    /** v7+ — sport tag. Optional for backwards compat. */
+    sport?: string | null;
   }>;
   chart_baseline_points?: Array<{
     system_id?: string;
@@ -546,6 +554,8 @@ export async function importBackup(systemId: string, payloadJson: string) {
       amount_pnl: b.amount_pnl,
       units_risk_multiplier: b.units_risk_multiplier,
       notes: b.notes ?? null,
+      // Older backups won't have `sport`; defaults to null (untagged).
+      sport: b.sport ?? null,
     });
   }
   if (betRows.length) {

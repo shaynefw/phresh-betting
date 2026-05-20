@@ -116,6 +116,14 @@ export interface CapperBetEntry {
   amount_pnl: number;
   units_risk_multiplier: number | null;
   notes: string | null;
+  /**
+   * Sport tag — see lib/sports.ts for the supported set. Nullable so
+   * legacy bets (pre-0012 migration) can stay untagged until the user
+   * retroactively assigns one via the bet-edit form. Stored as plain
+   * text (no CHECK constraint) so the UI can add new sports without
+   * a schema migration.
+   */
+  sport: string | null;
 }
 
 export interface JournalDayEntry {

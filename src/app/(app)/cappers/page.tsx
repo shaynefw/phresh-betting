@@ -184,7 +184,44 @@ export default async function CappersPage() {
     // don't store individual odds). Null when this capper has no tracked
     // bets carrying odds yet.
     const lifetimeAvgOdds = lifetimeAvgOddsByCapper.get(capperId) ?? null;
-    return { greenDays, redDays, dayWinRate, cumUnits, runRoi, lifetimeAvgOdds };
+    /**
+     * Cumulative Units (Last 20) — recent-form rolling window.
+     *
+     * "Betting day" = a row in capper_day_entries for this capper, which
+     * is exactly what the lifetime Cumulative Units metric is built from.
+     * So this number is just the lifetime cum re-computed over the slice
+     * of the 20 most recent tracked days — same per-day source, same
+     * units convention, same not-excluding-anything (testing-phase days
+     * are included on the capper's own page so they're included here too).
+     *
+     * Baseline imports are intentionally NOT included: baseline is an
+     * aggregate (no per-day breakdown), so there's no honest way to slot
+     * it into a rolling 20-day window. The user's "include baseline
+     * units" note is satisfied by using the same daily_units_pnl source
+     * the lifetime metric uses; the two values agree exactly when the
+     * capper has between 0 and 20 tracked days (both equal the running
+     * total) and the Last-20 starts diverging from lifetime once tracked
+     * days exceed 20 — which is the entire point of the metric.
+     *
+     * Fewer than 20 tracked days → null → rendered as "N/A".
+     */
+    const sortedDaysDesc = [...days].sort((a, b) =>
+      b.date.localeCompare(a.date),
+    );
+    const last20 = sortedDaysDesc.slice(0, 20);
+    const last20CumUnits =
+      last20.length < 20
+        ? null
+        : last20.reduce((s, d) => s + Number(d.daily_units_pnl ?? 0), 0);
+    return {
+      greenDays,
+      redDays,
+      dayWinRate,
+      cumUnits,
+      runRoi,
+      lifetimeAvgOdds,
+      last20CumUnits,
+    };
   }
 
   // Active management list: visible, manageable cappers — excludes both
@@ -259,6 +296,20 @@ export default async function CappersPage() {
                   <div className={pctClass(stats.cumUnits)}>{fmtUnits(stats.cumUnits)}</div>
                 </div>
                 <div>
+                  <div className="kpi-label text-[9px]">Cum Units (Last 20)</div>
+                  <div
+                    className={
+                      stats.last20CumUnits === null
+                        ? "text-ink-dim"
+                        : pctClass(stats.last20CumUnits)
+                    }
+                  >
+                    {stats.last20CumUnits === null
+                      ? "N/A"
+                      : `[${fmtUnits(stats.last20CumUnits)}]`}
+                  </div>
+                </div>
+                <div>
                   <div className="kpi-label text-[9px]">Run ROI</div>
                   <div className={pctClass(stats.runRoi)}>{fmtPct(stats.runRoi)}</div>
                 </div>
@@ -316,6 +367,7 @@ export default async function CappersPage() {
                 <th>Phase</th>
                 <th className="text-right">System Risk</th>
                 <th className="text-right">Cumulative Units</th>
+                <th className="text-right">Cumulative Units (Last 20)</th>
                 <th className="text-right">ROI</th>
                 <th className="text-right">Day Win Rate</th>
                 <th className="text-right">Avg Odds</th>
@@ -370,6 +422,17 @@ export default async function CappersPage() {
                     </td>
                     <td className={`text-right font-mono ${pctClass(stats.cumUnits)}`}>
                       {fmtUnits(stats.cumUnits)}
+                    </td>
+                    <td
+                      className={`text-right font-mono ${
+                        stats.last20CumUnits === null
+                          ? "text-ink-dim"
+                          : pctClass(stats.last20CumUnits)
+                      }`}
+                    >
+                      {stats.last20CumUnits === null
+                        ? "N/A"
+                        : `[${fmtUnits(stats.last20CumUnits)}]`}
                     </td>
                     <td className={`text-right font-mono ${pctClass(stats.runRoi)}`}>
                       {fmtPct(stats.runRoi)}

@@ -7,6 +7,7 @@ import type {
   Capper,
   CapperBaseline,
   CapperDayEntry,
+  ChartBaselinePoint,
   ScalingLogEntry,
 } from "@/lib/types";
 import { activeScalingRow } from "@/lib/calc";
@@ -120,6 +121,9 @@ export default async function CappersPage() {
     // (capper_id, odds), not the whole bet rows. Filters out null /
     // empty odds at the DB to keep the payload tight.
     { data: betOdds },
+    // Per-capper baseline graph points — fuels the Last-20 baseline
+    // fallback when a capper has fewer than 20 eligible tracked days.
+    { data: chartPointRows },
   ] = await Promise.all([
     supabase.from("cappers").select("*").eq("system_id", sysId)
       .order("sort_order").order("created_at"),
@@ -131,6 +135,12 @@ export default async function CappersPage() {
       .select("capper_id, odds")
       .eq("system_id", sysId)
       .not("odds", "is", null),
+    supabase
+      .from("chart_baseline_points")
+      .select("*")
+      .eq("system_id", sysId)
+      .not("capper_id", "is", null)
+      .order("day_number"),
   ]);
 
   const list = (cappers ?? []) as Capper[];
@@ -161,8 +171,24 @@ export default async function CappersPage() {
     );
   }
 
+  // Per-capper baseline graph points, pre-sorted ascending by day_number
+  // so the Last-20 calculator can take the most-recent baseline slice with
+  // a simple .slice(-deficit). Cappers with no imported graph data get an
+  // empty array (so they're forced to N/A when their tracked total < 20).
+  const chartPointsByCapper = new Map<string, ChartBaselinePoint[]>();
+  for (const p of (chartPointRows ?? []) as ChartBaselinePoint[]) {
+    if (!p.capper_id) continue;
+    const arr = chartPointsByCapper.get(p.capper_id) ?? [];
+    arr.push(p);
+    chartPointsByCapper.set(p.capper_id, arr);
+  }
+  for (const arr of chartPointsByCapper.values()) {
+    arr.sort((a, b) => a.day_number - b.day_number);
+  }
+
   // per-capper combined metrics (baseline + tracked)
-  function statsFor(capperId: string) {
+  function statsFor(capper: Capper) {
+    const capperId = capper.id;
     const b = baselineByCapper.get(capperId);
     const days = allDayRows.filter((d) => d.capper_id === capperId);
     const trackedGreen = days.filter((d) => Number(d.daily_roi_percent) > 0).length;
@@ -185,34 +211,70 @@ export default async function CappersPage() {
     // bets carrying odds yet.
     const lifetimeAvgOdds = lifetimeAvgOddsByCapper.get(capperId) ?? null;
     /**
-     * Cumulative Units (Last 20) — recent-form rolling window.
+     * Cumulative Units (Last 20) — rolling 20-betting-day window.
      *
-     * "Betting day" = a row in capper_day_entries for this capper, which
-     * is exactly what the lifetime Cumulative Units metric is built from.
-     * So this number is just the lifetime cum re-computed over the slice
-     * of the 20 most recent tracked days — same per-day source, same
-     * units convention, same not-excluding-anything (testing-phase days
-     * are included on the capper's own page so they're included here too).
+     * Business rules (verbatim from product spec):
      *
-     * Baseline imports are intentionally NOT included: baseline is an
-     * aggregate (no per-day breakdown), so there's no honest way to slot
-     * it into a rolling 20-day window. The user's "include baseline
-     * units" note is satisfied by using the same daily_units_pnl source
-     * the lifetime metric uses; the two values agree exactly when the
-     * capper has between 0 and 20 tracked days (both equal the running
-     * total) and the Last-20 starts diverging from lifetime once tracked
-     * days exceed 20 — which is the entire point of the metric.
+     *  1. Eligible tracked days = capper_day_entries for this capper,
+     *     except: if `checklist_status === "started"` AND the most
+     *     recent tracked day is today, that day is EXCLUDED. The
+     *     "complete" toggle includes today; "started" means today is
+     *     still in progress and shouldn't count yet.
+     *  2. If eligible tracked days >= 20: sum daily_units_pnl over the
+     *     20 most recent eligible days. Done.
+     *  3. If eligible tracked days < 20: fill the deficit (20 − eligible)
+     *     from the capper's baseline graph points (chart_baseline_points)
+     *     — taking the MOST RECENT baseline days. Baseline points store
+     *     cumulative units, so the daily contribution of a slice is the
+     *     telescoping difference: cum(end of slice) − cum(just before
+     *     slice). Total = sum_eligible + (slice_end_cum − slice_start_prev_cum).
+     *  4. If eligible + available baseline points < 20: return null →
+     *     renders "N/A".
      *
-     * Fewer than 20 tracked days → null → rendered as "N/A".
+     * This keeps the recent-form value aligned with the same per-day
+     * source the lifetime cumulative + capper chart use, and dynamically
+     * follows the checklist toggle without needing any DB triggers.
      */
-    const sortedDaysDesc = [...days].sort((a, b) =>
-      b.date.localeCompare(a.date),
-    );
-    const last20 = sortedDaysDesc.slice(0, 20);
-    const last20CumUnits =
-      last20.length < 20
-        ? null
-        : last20.reduce((s, d) => s + Number(d.daily_units_pnl ?? 0), 0);
+    const trackedAsc = [...days].sort((a, b) => a.date.localeCompare(b.date));
+    let eligibleTracked = trackedAsc;
+    if (
+      capper.checklist_status === "started" &&
+      trackedAsc.length > 0 &&
+      trackedAsc[trackedAsc.length - 1].date === today
+    ) {
+      eligibleTracked = trackedAsc.slice(0, -1);
+    }
+    const baselinePts = chartPointsByCapper.get(capperId) ?? [];
+
+    let last20CumUnits: number | null;
+    if (eligibleTracked.length + baselinePts.length < 20) {
+      last20CumUnits = null;
+    } else if (eligibleTracked.length >= 20) {
+      const window = eligibleTracked.slice(-20);
+      last20CumUnits = window.reduce(
+        (s, d) => s + Number(d.daily_units_pnl ?? 0),
+        0,
+      );
+    } else {
+      // Bridge tracked + baseline.
+      const trackedSum = eligibleTracked.reduce(
+        (s, d) => s + Number(d.daily_units_pnl ?? 0),
+        0,
+      );
+      const deficit = 20 - eligibleTracked.length;
+      const firstSliceIdx = baselinePts.length - deficit;
+      const sliceEndCum = Number(
+        baselinePts[baselinePts.length - 1].cumulative_units ?? 0,
+      );
+      const sliceStartPrevCum =
+        firstSliceIdx > 0
+          ? Number(baselinePts[firstSliceIdx - 1].cumulative_units ?? 0)
+          : 0;
+      // Telescoping sum of the baseline slice's daily contributions
+      // collapses to (end − previous-to-start), independent of slice size.
+      const baselineContribution = sliceEndCum - sliceStartPrevCum;
+      last20CumUnits = trackedSum + baselineContribution;
+    }
     return {
       greenDays,
       redDays,
@@ -228,7 +290,7 @@ export default async function CappersPage() {
   // archived AND soft-deleted (those have their own sections / are hidden).
   const active = list
     .filter((c) => !c.is_archived && !c.is_deleted)
-    .map((c) => ({ c, stats: statsFor(c.id) }))
+    .map((c) => ({ c, stats: statsFor(c) }))
     .sort((a, b) => b.stats.cumUnits - a.stats.cumUnits);
   // Archived only — excludes soft-deleted (treat archive and delete as
   // separate management buckets even though both default-include in

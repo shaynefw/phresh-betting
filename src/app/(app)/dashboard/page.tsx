@@ -33,11 +33,23 @@ import {
 } from "@/lib/baseline";
 import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import { linearRegression } from "@/lib/regression";
+import {
+  aggregateForPeriod,
+  bucketRows,
+  bucketStreakBreakdown,
+  computeStreakAcrossBuckets,
+  isInPeriod,
+  periodColumnHeader,
+  periodFooterLabel,
+  resolvePeriod,
+  summaryTitle,
+} from "@/lib/timeframe";
 import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import DailySummary from "@/components/DailySummary";
 import PerformanceSummary from "@/components/PerformanceSummary";
 import StreakBreakdown from "@/components/StreakBreakdown";
+import TimeframeNav from "@/components/TimeframeNav";
 import {
   TrendingUp, TrendingDown, Flame, Snowflake, Activity, Target,
 } from "lucide-react";
@@ -47,7 +59,12 @@ export const dynamic = "force-dynamic";
 export default async function Dashboard({
   searchParams,
 }: {
-  searchParams: Promise<{ date?: string }>;
+  searchParams: Promise<{
+    date?: string;
+    timeframe?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   const sp = await searchParams;
   const ctx = await loadShellContext();
@@ -112,6 +129,50 @@ export default async function Dashboard({
   const journalSummary = summarizeJournal(journalRows);
   const summary = combineWithJournal(systemBaseline, journalSummary);
 
+  /* -----------------------------------------------------------------
+   * Timeframe resolution.
+   *
+   * The dashboard now supports Day, Week, Month, Year, All, and Custom
+   * timeframes (see src/lib/timeframe.ts). Day reproduces the legacy
+   * single-date behavior exactly; the other kinds re-bucket the journal
+   * history and drive the chart, daily-summary panel, capper-units
+   * column, bottom footer, and streak-card off the selected period.
+   *
+   * Things that intentionally do NOT change with the timeframe:
+   *   - Scaling progress / Level cards (scaling is a lifetime concept)
+   *   - PerformanceSummary panel (the "combined" lifetime aggregate)
+   *   - Chart reference lines for scale up / scale down (lifetime)
+   * --------------------------------------------------------------- */
+  const period = resolvePeriod({
+    timeframe: sp.timeframe,
+    date: sp.date,
+    from: sp.from,
+    to: sp.to,
+    fallbackDate: journalRows.at(-1)?.date ?? todayISO(),
+  });
+  const periodJournalRows = journalRows.filter((r) =>
+    isInPeriod(r.date, period),
+  );
+  const periodAgg = aggregateForPeriod(periodJournalRows);
+
+  // Streak math — bucket the FULL journal history by the timeframe's
+  // bucket key (so week/month/year streaks consider all prior history),
+  // EXCEPT for Custom range which the spec wants to reflect the exact
+  // selected window only. Day-mode preserves its existing single-row
+  // streak source (the SQL-computed current_streak_value on the journal
+  // row) by ignoring the bucket result and falling back to `summary`.
+  const streakRowsSource =
+    period.kind === "custom" ? periodJournalRows : journalRows;
+  const periodBuckets = bucketRows(streakRowsSource, period.bucketKey);
+  const periodStreak = computeStreakAcrossBuckets(periodBuckets);
+  const useDayModeStreak = period.kind === "day" || period.kind === "all";
+  const displayStreakType = useDayModeStreak
+    ? summary.currentStreakType
+    : periodStreak.type;
+  const displayStreakValue = useDayModeStreak
+    ? summary.currentStreakValue
+    : periodStreak.value;
+
   /**
    * Dashboard green/red ROI math (per user spec, validated against
    * real exported data):
@@ -141,52 +202,76 @@ export default async function Dashboard({
   const scaleState = computeScalingState(summary.cumulativeUnits, activeRow);
 
   /**
-   * Chart data assembly:
-   *   1. If the user imported chart baseline points, plot each as a
-   *      day on the chart. Tracked data picks up from the last
-   *      imported point's cumulative.
-   *   2. Otherwise fall back to the legacy single-anchor behavior:
-   *      one point at systemBaseline.cumulative_units_pnl, then
-   *      tracked days continue from there.
-   *   3. If neither, just plot tracked days starting at 0.
+   * Chart data assembly.
+   *
+   * Day + All timeframes show the full historical trajectory (existing
+   * behavior): baseline points if imported, then every tracked journal
+   * row, all plotted at their absolute cumulative-units position.
+   *
+   * Week / Month / Year / Custom narrow the chart to the period's
+   * journal rows only. Baseline points are dropped — they live outside
+   * the period — and day numbers restart at 1 so the X-axis reads as
+   * "Day 1 of the week / month / range" rather than a global index.
+   * The points still plot their absolute cumulative_units_pnl, so the
+   * user sees their cumulative position evolving inside the period.
    */
   const sortedChartPoints = [...chartPoints].sort(
     (a, b) => a.day_number - b.day_number,
   );
-  const chartData: { day: number; date: string; cumulativeUnits: number; trendline: number | null }[] = [];
+  const chartData: {
+    day: number;
+    date: string;
+    cumulativeUnits: number;
+    trendline: number | null;
+  }[] = [];
 
   let trackedStartUnits = 0;
   let trackedDayOffset = 0;
-  if (sortedChartPoints.length > 0) {
-    sortedChartPoints.forEach((p) => {
+
+  const fullChartMode = period.kind === "day" || period.kind === "all";
+
+  if (fullChartMode) {
+    if (sortedChartPoints.length > 0) {
+      sortedChartPoints.forEach((p) => {
+        chartData.push({
+          day: p.day_number,
+          date: "",
+          cumulativeUnits: Number(p.cumulative_units),
+          trendline: null,
+        });
+      });
+      const last = sortedChartPoints[sortedChartPoints.length - 1];
+      trackedStartUnits = Number(last.cumulative_units);
+      trackedDayOffset = last.day_number;
+    } else if (systemBaseline) {
+      trackedStartUnits = Number(systemBaseline.cumulative_units_pnl ?? 0);
+      trackedDayOffset = systemBaseline.total_betting_days ?? 0;
       chartData.push({
-        day: p.day_number,
-        date: "",
-        cumulativeUnits: Number(p.cumulative_units),
+        day: trackedDayOffset,
+        date: "baseline",
+        cumulativeUnits: trackedStartUnits,
+        trendline: null,
+      });
+    }
+    journalRows.forEach((j, i) => {
+      chartData.push({
+        day: trackedDayOffset + i + 1,
+        date: j.date,
+        cumulativeUnits: trackedStartUnits + Number(j.cumulative_units_pnl),
         trendline: null,
       });
     });
-    const last = sortedChartPoints[sortedChartPoints.length - 1];
-    trackedStartUnits = Number(last.cumulative_units);
-    trackedDayOffset = last.day_number;
-  } else if (systemBaseline) {
-    trackedStartUnits = Number(systemBaseline.cumulative_units_pnl ?? 0);
-    trackedDayOffset = systemBaseline.total_betting_days ?? 0;
-    chartData.push({
-      day: trackedDayOffset,
-      date: "baseline",
-      cumulativeUnits: trackedStartUnits,
-      trendline: null,
+  } else {
+    // Period-scoped chart — only the in-period journal rows.
+    periodJournalRows.forEach((j, i) => {
+      chartData.push({
+        day: i + 1,
+        date: j.date,
+        cumulativeUnits: Number(j.cumulative_units_pnl),
+        trendline: null,
+      });
     });
   }
-  journalRows.forEach((j, i) => {
-    chartData.push({
-      day: trackedDayOffset + i + 1,
-      date: j.date,
-      cumulativeUnits: trackedStartUnits + Number(j.cumulative_units_pnl),
-      trendline: null,
-    });
-  });
   // Ordinary least-squares regression line spanning the entire dataset
   // (Apple-Numbers-style line of best fit). Renders straight because
   // every row carries y = m*x + b at its real x value.
@@ -202,7 +287,24 @@ export default async function Dashboard({
   // Compatibility alias used by the existing "starts at baseline" pill
   const baselineUnits = trackedStartUnits;
 
-  // capper-on-the-day map
+  /**
+   * Per-capper period-units: sum of daily_units_pnl over the days that
+   * fall inside the active period. For Day mode this is just the
+   * focus-date day's units (matches legacy behavior); for the other
+   * timeframes it's the sum across all in-period days for that capper.
+   */
+  const periodUnitsByCapper = new Map<string, number>();
+  for (const d of allDayRows) {
+    if (!isInPeriod(d.date, period)) continue;
+    periodUnitsByCapper.set(
+      d.capper_id,
+      (periodUnitsByCapper.get(d.capper_id) ?? 0) +
+        Number(d.daily_units_pnl ?? 0),
+    );
+  }
+  // Capper-on-the-day map kept for backwards compatibility with the
+  // existing per-capper row layout — Day mode still renders identical
+  // numbers to before.
   const onDayByCapper = new Map<string, CapperDayEntry>();
   allDayRows.filter((d) => d.date === focusDate).forEach((d) => {
     onDayByCapper.set(d.capper_id, d);
@@ -259,36 +361,53 @@ export default async function Dashboard({
         </div>
       </header>
 
+      {/* timeframe nav — Day / Week / Month / Year / All + custom-range popover.
+          Sits above the Current Streak / Scale Up / Level cards and acts as the
+          dashboard's primary control surface for what date range every other
+          panel summarizes. */}
+      <TimeframeNav
+        kind={period.kind}
+        anchorDate={period.anchorDate}
+        from={period.kind === "custom" ? period.start : null}
+        to={period.kind === "custom" ? period.end : null}
+      />
+
       {/* top strip */}
       <div className="grid md:grid-cols-3 gap-4">
         <div className="panel p-4">
-          <div className="kpi-label mb-1">Current Streak</div>
+          <div className="kpi-label mb-1 flex items-center gap-2">
+            Current Streak
+            <span className="text-[10px] text-ink-dim normal-case tracking-normal">
+              ({period.bucketNoun}
+              {displayStreakValue === 1 ? "" : "s"})
+            </span>
+          </div>
           <div className="flex items-center gap-3">
             <div
               className={
                 "kpi-value font-mono " +
-                (summary.currentStreakType === "green"
+                (displayStreakType === "green"
                   ? "text-good"
-                  : summary.currentStreakType === "red"
+                  : displayStreakType === "red"
                     ? "text-bad"
                     : "text-ink-dim")
               }
             >
-              {summary.currentStreakValue}
+              {displayStreakValue}
             </div>
             <div
               className={
                 "h-8 w-8 rounded grid place-items-center " +
-                (summary.currentStreakType === "green"
+                (displayStreakType === "green"
                   ? "bg-good/15 text-good"
-                  : summary.currentStreakType === "red"
+                  : displayStreakType === "red"
                     ? "bg-bad/15 text-bad"
                     : "bg-muted/15 text-ink-dim")
               }
             >
-              {summary.currentStreakType === "green" ? (
+              {displayStreakType === "green" ? (
                 <TrendingUp className="h-4 w-4" />
-              ) : summary.currentStreakType === "red" ? (
+              ) : displayStreakType === "red" ? (
                 <TrendingDown className="h-4 w-4" />
               ) : (
                 <Activity className="h-4 w-4" />
@@ -378,7 +497,12 @@ export default async function Dashboard({
         />
       </section>
 
-      {/* performance summary */}
+      {/* performance summary
+          The "Combined" panel always shows lifetime totals (baseline +
+          all tracked) — that's the read-once view of "where are we
+          overall". The smaller DailySummary on the right switches its
+          numbers + title with the active timeframe, so the user sees
+          period-scoped metrics there. */}
       <section className="grid lg:grid-cols-2 gap-4">
         <PerformanceSummary
           title={systemBaseline ? "Combined Performance Summary" : "Performance Summary"}
@@ -405,16 +529,67 @@ export default async function Dashboard({
           maxLossStreak={summary.maxLossStreak}
         />
 
-        <DailySummary focusDate={focusDate} dayJournal={dayJournal ?? null} />
+        {/* Build a synthetic JournalDayEntry-shaped object holding the
+            period's aggregated totals so the existing DailySummary card
+            renders period totals (bets / risk / ROI / units / $ profit /
+            win-rate) instead of just a single day. The non-relevant
+            fields default to neutral values. */}
+        <DailySummary
+          focusDate={period.anchorDate}
+          title={summaryTitle(period)}
+          dayJournal={
+            period.kind === "day"
+              ? (dayJournal ?? null)
+              : ({
+                  id: "synthetic",
+                  system_id: sysId,
+                  date: period.anchorDate,
+                  total_wager: periodAgg.totalRisk,
+                  total_bets: periodAgg.totalBets,
+                  total_system_risk_cumulative: 0,
+                  daily_amount_pnl: periodAgg.cumulativeAmount,
+                  cumulative_amount_pnl: 0,
+                  daily_units_pnl: periodAgg.cumulativeUnits,
+                  cumulative_units_pnl: 0,
+                  daily_roi_percent: periodAgg.runningRoi,
+                  running_roi_percent: 0,
+                  wins: periodAgg.wins,
+                  losses: periodAgg.losses,
+                  win_rate_percent: periodAgg.winRate,
+                  record_wins: 0,
+                  record_losses: 0,
+                  green_day_count: periodAgg.greenDays,
+                  red_day_count: periodAgg.redDays,
+                  green_day_roi_cumulative: 0,
+                  red_day_roi_cumulative: 0,
+                  green_day_avg_roi: periodAgg.greenAvgRoi,
+                  red_day_avg_roi: periodAgg.redAvgRoi,
+                  green_day_probability: periodAgg.greenProbability,
+                  current_streak_value: displayStreakValue,
+                  current_streak_type: displayStreakType,
+                  max_win_streak: 0,
+                  max_loss_streak: 0,
+                  unit_size_used: null,
+                } as JournalDayEntry)
+          }
+        />
       </section>
 
-      {/* streak breakdown — system-level only: tracked journal runs + system baseline.
-          Per-capper baselines stay scoped to their own capper page. */}
+      {/* streak breakdown — week/month/year modes bucket the full
+          history into the chosen unit; day/all use existing per-day
+          breakdown; custom uses the in-range daily rows only. System
+          baseline streaks are folded in for daily / all only — they
+          predate the buckets we'd want for week/month/year and don't
+          translate cleanly. */}
       <StreakBreakdown
-        entries={mergeBreakdowns(
-          streakBreakdown(journalRows),
-          systemBaselineRaw?.streak_breakdown ?? null,
-        )}
+        entries={
+          useDayModeStreak
+            ? mergeBreakdowns(
+                streakBreakdown(journalRows),
+                systemBaselineRaw?.streak_breakdown ?? null,
+              )
+            : bucketStreakBreakdown(periodBuckets)
+        }
       />
 
       {/* capper summary */}
@@ -423,7 +598,7 @@ export default async function Dashboard({
           <h3 className="kpi-label">Capper Units Summary</h3>
           <div className="flex gap-3 text-[11px] text-ink-dim">
             <span>CUMULATIVE</span>
-            <span>ON THE DAY</span>
+            <span>{periodColumnHeader(period)}</span>
           </div>
         </div>
         <div className="divide-y divide-border">
@@ -446,8 +621,12 @@ export default async function Dashboard({
             .sort((a, b) => (cumByCapper.get(b.id) ?? 0) - (cumByCapper.get(a.id) ?? 0))
             .map((c) => {
               const cum = cumByCapper.get(c.id) ?? 0;
-              const today = onDayByCapper.get(c.id);
-              const todayUnits = today ? Number(today.daily_units_pnl) : 0;
+              // Period-aware second column: Day mode keeps the single
+              // focus-day value, the others sum all in-period days.
+              const periodUnits =
+                period.kind === "day"
+                  ? Number(onDayByCapper.get(c.id)?.daily_units_pnl ?? 0)
+                  : (periodUnitsByCapper.get(c.id) ?? 0);
               return (
                 <div key={c.id} className="py-2 grid grid-cols-12 items-center gap-2">
                   <div className="col-span-6 flex items-center gap-2 flex-wrap min-w-0">
@@ -473,8 +652,8 @@ export default async function Dashboard({
                   <div className={`col-span-3 text-right font-mono ${pctClass(cum)}`}>
                     {fmtUnits(cum)}
                   </div>
-                  <div className={`col-span-3 text-right font-mono ${pctClass(todayUnits)}`}>
-                    {fmtUnits(todayUnits)}
+                  <div className={`col-span-3 text-right font-mono ${pctClass(periodUnits)}`}>
+                    {fmtUnits(periodUnits)}
                   </div>
                 </div>
               );
@@ -482,16 +661,27 @@ export default async function Dashboard({
         </div>
       </section>
 
-      {/* on the day footer */}
+      {/* period footer — label + value both swap with the active
+          timeframe ("On the Week", "On the Month", etc.). Day mode
+          keeps the original per-date number; everything else uses the
+          period's aggregated units total. */}
       <section className="panel p-5 flex items-center justify-between">
         <div className="kpi-label flex items-center gap-2">
-          <Target className="h-4 w-4 text-accent" /> On the Day
+          <Target className="h-4 w-4 text-accent" /> {periodFooterLabel(period)}
         </div>
-        <div
-          className={`text-2xl font-bold font-mono ${pctClass(dayJournal?.daily_units_pnl ?? 0)}`}
-        >
-          {fmtUnits(dayJournal?.daily_units_pnl ?? 0)}
-        </div>
+        {(() => {
+          const value =
+            period.kind === "day"
+              ? Number(dayJournal?.daily_units_pnl ?? 0)
+              : periodAgg.cumulativeUnits;
+          return (
+            <div
+              className={`text-2xl font-bold font-mono ${pctClass(value)}`}
+            >
+              {fmtUnits(value)}
+            </div>
+          );
+        })()}
       </section>
     </div>
   );

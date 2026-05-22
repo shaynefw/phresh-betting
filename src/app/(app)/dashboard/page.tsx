@@ -11,7 +11,6 @@ import {
   fmtMoney,
   fmtPct,
   fmtUnits,
-  fmtWinLoss,
   pctClass,
   todayISO,
 } from "@/lib/utils";
@@ -36,6 +35,7 @@ import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import { linearRegression } from "@/lib/regression";
 import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
+import DailySummary from "@/components/DailySummary";
 import PerformanceSummary from "@/components/PerformanceSummary";
 import StreakBreakdown from "@/components/StreakBreakdown";
 import {
@@ -405,47 +405,7 @@ export default async function Dashboard({
           maxLossStreak={summary.maxLossStreak}
         />
 
-        <div className="panel p-3 md:p-5">
-          <h3 className="kpi-label mb-3">Daily Summary — {focusDate}</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <MiniStat label="Total # of bets" value={dayJournal?.total_bets ?? 0} />
-            <MiniStat label="Total Risk" value={fmtMoney(dayJournal?.total_wager ?? 0)} />
-            <MiniStat
-              label="ROI"
-              value={fmtPct(dayJournal?.daily_roi_percent ?? 0)}
-              tone={dayJournal?.daily_roi_percent ?? 0}
-            />
-            <MiniStat
-              label="Cumulative Units"
-              value={fmtUnits(dayJournal?.daily_units_pnl ?? 0)}
-              tone={dayJournal?.daily_units_pnl ?? 0}
-            />
-            <MiniStat
-              label="Daily $ Profit"
-              value={fmtMoney(dayJournal?.daily_amount_pnl ?? 0, { sign: true })}
-              tone={dayJournal?.daily_amount_pnl ?? 0}
-            />
-            <MiniStat
-              label="Win Rate"
-              // Identical "W-L (pct%)" rendering as the capper daily-log
-              // column and the new journal Win Rate column. Safe for days
-              // with no graded bets (returns "0-0 (0%)").
-              value={
-                dayJournal
-                  ? fmtWinLoss(
-                      Number(dayJournal.wins ?? 0),
-                      Number(dayJournal.losses ?? 0),
-                    )
-                  : "—"
-              }
-              tone={
-                dayJournal
-                  ? Number(dayJournal.wins ?? 0) - Number(dayJournal.losses ?? 0)
-                  : undefined
-              }
-            />
-          </div>
-        </div>
+        <DailySummary focusDate={focusDate} dayJournal={dayJournal ?? null} />
       </section>
 
       {/* streak breakdown — system-level only: tracked journal runs + system baseline.
@@ -533,25 +493,6 @@ export default async function Dashboard({
           {fmtUnits(dayJournal?.daily_units_pnl ?? 0)}
         </div>
       </section>
-    </div>
-  );
-}
-
-function MiniStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: React.ReactNode;
-  tone?: number;
-}) {
-  const cls =
-    typeof tone === "number" ? (tone > 0 ? "text-good" : tone < 0 ? "text-bad" : "") : "";
-  return (
-    <div className="bg-bg-panel/60 rounded-md p-3">
-      <div className="kpi-label text-[10px] mb-1">{label}</div>
-      <div className={`font-mono text-base ${cls}`}>{value}</div>
     </div>
   );
 }

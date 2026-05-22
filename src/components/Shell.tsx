@@ -12,6 +12,7 @@ import {
   Layers,
   Users,
   Menu,
+  Ticket,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ interface Props {
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/cappers", label: "Cappers", icon: Users },
+  { href: "/bets", label: "Bets", icon: Ticket },
   { href: "/journal", label: "Journal", icon: BookOpen },
   { href: "/scaling", label: "Scaling", icon: Layers },
   { href: "/settings", label: "Settings", icon: Settings2 },
@@ -143,7 +145,7 @@ export default function Shell({ email, systems, activeSystemId, children }: Prop
       <main className="flex-1 min-w-0">{children}</main>
 
       {/* mobile bottom tab bar (always-visible nav) */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 grid grid-cols-5 border-t border-border bg-bg-panel/95 backdrop-blur">
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 grid grid-cols-6 border-t border-border bg-bg-panel/95 backdrop-blur">
         {NAV.map((n) => {
           const Active = pathname?.startsWith(n.href);
           const Icon = n.icon;

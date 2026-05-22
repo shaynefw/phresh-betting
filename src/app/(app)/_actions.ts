@@ -51,6 +51,7 @@ export async function upsertCapperDay(input: {
   revalidatePath("/cappers");
   revalidatePath("/dashboard");
   revalidatePath("/journal");
+  revalidatePath("/bets");
   return { ok: true };
 }
 
@@ -91,6 +92,7 @@ export async function addBet(input: {
   revalidatePath("/cappers");
   revalidatePath("/dashboard");
   revalidatePath("/journal");
+  revalidatePath("/bets");
   return { ok: true };
 }
 
@@ -311,6 +313,7 @@ export async function deleteBet(betId: string, systemId: string, capperId: strin
   revalidatePath(`/cappers/${capperId}`);
   revalidatePath("/dashboard");
   revalidatePath("/journal");
+  revalidatePath("/bets");
   return { ok: true };
 }
 
@@ -349,6 +352,7 @@ export async function updateBet(input: {
   revalidatePath("/cappers");
   revalidatePath("/dashboard");
   revalidatePath("/journal");
+  revalidatePath("/bets");
   return { ok: true };
 }
 

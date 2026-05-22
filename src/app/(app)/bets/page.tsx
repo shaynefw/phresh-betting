@@ -8,25 +8,35 @@ import type {
   JournalDayEntry,
 } from "@/lib/types";
 import { fmtMoney, pctClass, todayISO } from "@/lib/utils";
+import { isSport, type Sport } from "@/lib/sports";
 import DailySummary from "@/components/DailySummary";
+import SportIcon from "@/components/SportIcon";
 import ExportButton from "@/components/ExportButton";
 
 /**
- * Bets → Open Bets Summary
+ * Bets → Daily Bet Summary
  *
- * Shows every bet recorded on a single date across every capper in the
- * active system. The selected date is driven by the shared `?date=` URL
- * param — the SAME param the dashboard's date picker writes to, so
- * sharing a URL between the two pages keeps them on the same day.
+ * Daily roll-up of every bet-level entry recorded on a single date,
+ * across every capper in the active system. Acts as the read-side
+ * counterpart to the per-capper bet editor: whatever a user types into
+ * a bet-level entry on /cappers/[id] flows here automatically, and
+ * later edits stay in sync because both views read from the same
+ * capper_bet_entries source on each render (the page is force-dynamic
+ * and bet mutation actions revalidatePath("/bets") so the Next.js
+ * router cache invalidates too).
+ *
+ * The selected date is driven by the shared `?date=` URL param — the
+ * SAME param the dashboard's date picker writes to, so users learn one
+ * filter and sharing a URL between /dashboard and /bets keeps both on
+ * the same day.
  *
  * Layout:
- *   1. Date selector (same control surface as the dashboard, so users
- *      don't have a separate filter to learn)
- *   2. DailySummary panel (same component the dashboard uses → numbers
- *      are byte-for-byte identical for the same date)
- *   3. Table of bets, grouped by result in the order Win → Loss → Void
- *      → Pending; within each group sorted by created_at ASC so the
- *      earliest-submitted bets appear first.
+ *   1. Date selector (same GET-form pattern as the dashboard)
+ *   2. DailySummary panel — shared component, byte-for-byte identical
+ *      numbers as the dashboard for the same date
+ *   3. Daily Bet Summary table, grouped by result Win → Loss → Void →
+ *      Pending; within each group sorted by created_at ASC so the
+ *      earliest-submitted bets float to the top of their group.
  *
  * No DB / schema changes. Pure read-side composition.
  */
@@ -129,11 +139,11 @@ export default async function BetsPage({
           <div className="text-[10px] tracking-[0.4em] text-accent uppercase">
             Bets
           </div>
-          <h1 className="text-xl md:text-2xl font-bold">Open Bets Summary</h1>
+          <h1 className="text-xl md:text-2xl font-bold">Daily Bet Summary</h1>
           <p className="text-ink-dim text-sm">
-            All bets recorded for{" "}
-            <span className="text-ink font-mono">{focusDate}</span>, grouped by
-            result. Date is shared with the{" "}
+            Every bet-level entry recorded on{" "}
+            <span className="text-ink font-mono">{focusDate}</span>, rolled up
+            across all cappers and grouped by result. Date is shared with the{" "}
             <Link href={`/dashboard?date=${focusDate}`} className="text-accent hover:underline">
               Dashboard
             </Link>
@@ -170,6 +180,7 @@ export default async function BetsPage({
             <thead>
               <tr>
                 <th>Capper</th>
+                <th>Sport</th>
                 <th className="text-right">Wager</th>
                 <th className="text-right">Odds</th>
                 <th>Result</th>
@@ -181,7 +192,7 @@ export default async function BetsPage({
               {sortedBets.length === 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className="text-center text-ink-dim py-6"
                   >
                     No bets recorded for this date.
@@ -191,6 +202,7 @@ export default async function BetsPage({
               {sortedBets.map((b) => {
                 const pill = RESULT_PILL[b.bet_result] ?? "pill-mute";
                 const isPending = b.bet_result === "pending";
+                const sportTag = isSport(b.sport) ? (b.sport as Sport) : null;
                 return (
                   <tr key={b.id} className={isPending ? "bg-pending/5" : ""}>
                     <td>
@@ -200,6 +212,16 @@ export default async function BetsPage({
                       >
                         {capperNameById.get(b.capper_id) ?? "—"}
                       </Link>
+                    </td>
+                    <td>
+                      {sportTag ? (
+                        <span className="inline-flex items-center gap-1.5 text-ink">
+                          <SportIcon sport={sportTag} size={13} />
+                          <span className="text-xs">{sportTag}</span>
+                        </span>
+                      ) : (
+                        <span className="text-ink-dim text-xs">—</span>
+                      )}
                     </td>
                     <td className="text-right">{fmtMoney(b.wager_amount)}</td>
                     <td className="text-right">{b.odds ?? "—"}</td>

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -25,6 +24,20 @@ interface Props {
   scaleUpAt?: number;
   scaleDownAt?: number;
   height?: number;
+  /**
+   * X-axis title. Defaults to "Betting Days" — the dashboard passes a
+   * timeframe-specific label ("Betting Weeks" / "Betting Months" /
+   * "Betting Years") so the axis reads cleanly across views.
+   */
+  xAxisLabel?: string;
+  /**
+   * When true, the X-axis renders denser tick labels (smaller
+   * minTickGap + preserveStartEnd) so Day/All views fill the axis
+   * more evenly instead of skipping large stretches. Block-based views
+   * (Week / Month / Year) already have few enough points that they
+   * don't need this.
+   */
+  denseTicks?: boolean;
 }
 
 export default function CumulativeUnitsChart({
@@ -32,10 +45,17 @@ export default function CumulativeUnitsChart({
   scaleUpAt,
   scaleDownAt,
   height = 320,
+  xAxisLabel = "Betting Days",
+  denseTicks = false,
 }: Props) {
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={data} margin={{ top: 12, right: 12, left: 4, bottom: 8 }}>
+      <ComposedChart
+        data={data}
+        // Bottom margin grows to fit the X-axis title; left margin
+        // gives the vertical Y-axis title room.
+        margin={{ top: 12, right: 12, left: 18, bottom: 24 }}
+      >
         <defs>
           <linearGradient id="cumGrad" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#22a8ff" stopOpacity={0.35} />
@@ -50,8 +70,41 @@ export default function CumulativeUnitsChart({
           allowDecimals={false}
           tickLine={false}
           axisLine={{ stroke: "#1a2540" }}
+          // Denser ticks for Day/All so labels fill the axis without
+          // huge gaps. minTickGap caps per-pixel spacing; the
+          // preserveStartEnd hint keeps the first + last tick visible.
+          interval={denseTicks ? "preserveStartEnd" : "preserveEnd"}
+          minTickGap={denseTicks ? 20 : 32}
+          label={{
+            value: xAxisLabel,
+            position: "insideBottom",
+            offset: -14,
+            style: {
+              fill: "#7280a0",
+              fontSize: 11,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+            },
+          }}
         />
-        <YAxis tickLine={false} axisLine={{ stroke: "#1a2540" }} width={36} />
+        <YAxis
+          tickLine={false}
+          axisLine={{ stroke: "#1a2540" }}
+          width={56}
+          label={{
+            value: "Cumulative Units",
+            angle: -90,
+            position: "insideLeft",
+            offset: 6,
+            style: {
+              fill: "#7280a0",
+              fontSize: 11,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              textAnchor: "middle",
+            },
+          }}
+        />
         <Tooltip
           formatter={(v: number) => `${v.toFixed(2)}u`}
           labelFormatter={(d, payload) => {

@@ -512,3 +512,66 @@ export function periodColumnHeader(p: Period): string {
       return p.start === p.end ? "ON THE DAY" : "ON RANGE";
   }
 }
+
+/**
+ * X-axis title for the cumulative-units chart. Always prefixed with
+ * "Betting " so the unit reads naturally — "Betting Days", "Betting
+ * Weeks", etc.
+ */
+export function chartXAxisLabel(p: Period): string {
+  switch (p.kind) {
+    case "day":
+      return "Betting Days";
+    case "week":
+      return "Betting Weeks";
+    case "month":
+      return "Betting Months";
+    case "year":
+      return "Betting Years";
+    case "all":
+      return "Betting Days";
+    case "custom":
+      return "Betting Days";
+  }
+}
+
+/**
+ * Unit noun (plural lowercase) used by the Streak Breakdown panel's
+ * "(by ...)" subtitle. Mirrors `bucketNoun` for week/month/year but
+ * always returns a plural string ready for direct rendering.
+ */
+export function streakUnitLabel(p: Period): string {
+  switch (p.kind) {
+    case "week":
+      return "weeks";
+    case "month":
+      return "months";
+    case "year":
+      return "years";
+    case "day":
+    case "all":
+    case "custom":
+    default:
+      return "days";
+  }
+}
+
+/**
+ * Betting-day block size used by the Week/Month/Year chart. Each block
+ * collapses N consecutive betting days (baseline + tracked combined
+ * chronologically) into a single data point at the cumulative position
+ * at the end of the block. Returns null for timeframes that don't use
+ * block grouping (Day, All, Custom).
+ */
+export function chartBlockSize(p: Period): number | null {
+  switch (p.kind) {
+    case "week":
+      return 7;
+    case "month":
+      return 30;
+    case "year":
+      return 365;
+    default:
+      return null;
+  }
+}

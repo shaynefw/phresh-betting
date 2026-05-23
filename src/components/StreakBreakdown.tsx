@@ -5,16 +5,27 @@ interface Props {
   entries: StreakBreakdownEntry[];
   /** Optional override for the section title (e.g. capper page) */
   title?: string;
+  /**
+   * Unit noun (plural lowercase) for the "(by ...)" subtitle. Defaults
+   * to "days"; the dashboard passes "weeks" / "months" / "years" when
+   * a non-daily timeframe is active so the wording matches the streak
+   * bucket size.
+   */
+  unitLabel?: string;
 }
 
-export default function StreakBreakdown({ entries, title }: Props) {
+export default function StreakBreakdown({
+  entries,
+  title,
+  unitLabel = "days",
+}: Props) {
   return (
     <div className="panel p-3 md:p-5 relative">
       <div className="flex items-center gap-2 mb-3">
         <Flame className="h-4 w-4 text-accent" />
         <h3 className="kpi-label text-accent">
           {title ?? "Streak Breakdown"}{" "}
-          <span className="text-ink-dim">(by days)</span>
+          <span className="text-ink-dim">(by {unitLabel})</span>
         </h3>
       </div>
 

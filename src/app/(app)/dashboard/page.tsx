@@ -37,11 +37,14 @@ import {
   aggregateForPeriod,
   bucketRows,
   bucketStreakBreakdown,
+  chartBlockSize,
+  chartXAxisLabel,
   computeStreakAcrossBuckets,
   isInPeriod,
   periodColumnHeader,
   periodFooterLabel,
   resolvePeriod,
+  streakUnitLabel,
   summaryTitle,
 } from "@/lib/timeframe";
 import ExportButton from "@/components/ExportButton";
@@ -204,16 +207,24 @@ export default async function Dashboard({
   /**
    * Chart data assembly.
    *
-   * Day + All timeframes show the full historical trajectory (existing
-   * behavior): baseline points if imported, then every tracked journal
-   * row, all plotted at their absolute cumulative-units position.
+   * Three branches:
    *
-   * Week / Month / Year / Custom narrow the chart to the period's
-   * journal rows only. Baseline points are dropped — they live outside
-   * the period — and day numbers restart at 1 so the X-axis reads as
-   * "Day 1 of the week / month / range" rather than a global index.
-   * The points still plot their absolute cumulative_units_pnl, so the
-   * user sees their cumulative position evolving inside the period.
+   *   Day / All — show the full historical trajectory exactly as
+   *   before: baseline points (if imported) + every tracked journal
+   *   row, all plotted at their absolute cumulative-units position.
+   *
+   *   Week / Month / Year — build the chart from "block-end" data
+   *   points. Each block is N consecutive BETTING DAYS (7 / 30 / 365)
+   *   pulled from a single chronological sequence of baseline +
+   *   tracked. The cumulative value at the LAST day of each block is
+   *   the data point. A trailing partial block (current week-so-far)
+   *   is also included so the user can see their in-progress position.
+   *   X-axis is renumbered 1..N so it reads as Betting Week / Month /
+   *   Year #N.
+   *
+   *   Custom — period-filtered daily points only, no baseline. The
+   *   user explicitly asked for the previous custom-range behavior to
+   *   be preserved.
    */
   const sortedChartPoints = [...chartPoints].sort(
     (a, b) => a.day_number - b.day_number,
@@ -229,6 +240,7 @@ export default async function Dashboard({
   let trackedDayOffset = 0;
 
   const fullChartMode = period.kind === "day" || period.kind === "all";
+  const blockSize = chartBlockSize(period); // 7 / 30 / 365 for week/month/year
 
   if (fullChartMode) {
     if (sortedChartPoints.length > 0) {
@@ -261,8 +273,61 @@ export default async function Dashboard({
         trendline: null,
       });
     });
+  } else if (blockSize !== null) {
+    // Week / Month / Year — flatten baseline + tracked into one
+    // chronological betting-day sequence, then collapse every N
+    // consecutive days into a single block-end point.
+    const flatPoints: { cumulativeUnits: number; date: string }[] = [];
+    if (sortedChartPoints.length > 0) {
+      sortedChartPoints.forEach((p) => {
+        flatPoints.push({
+          cumulativeUnits: Number(p.cumulative_units),
+          date: "",
+        });
+      });
+      trackedStartUnits = Number(
+        sortedChartPoints[sortedChartPoints.length - 1].cumulative_units,
+      );
+    } else if (systemBaseline) {
+      trackedStartUnits = Number(systemBaseline.cumulative_units_pnl ?? 0);
+      flatPoints.push({
+        cumulativeUnits: trackedStartUnits,
+        date: "baseline",
+      });
+    }
+    journalRows.forEach((j) => {
+      flatPoints.push({
+        cumulativeUnits: trackedStartUnits + Number(j.cumulative_units_pnl),
+        date: j.date,
+      });
+    });
+
+    // Pull the end-of-block point every N days.
+    for (let i = blockSize - 1; i < flatPoints.length; i += blockSize) {
+      const p = flatPoints[i];
+      chartData.push({
+        day: chartData.length + 1,
+        date: p.date,
+        cumulativeUnits: p.cumulativeUnits,
+        trendline: null,
+      });
+    }
+    // Trailing partial block: if the last point isn't already the end
+    // of a complete block, append it so users see their in-progress
+    // position (e.g., a current week with 3 days played so far).
+    const fullBlocksConsumed = chartData.length * blockSize;
+    if (flatPoints.length > fullBlocksConsumed) {
+      const lastPoint = flatPoints[flatPoints.length - 1];
+      chartData.push({
+        day: chartData.length + 1,
+        date: lastPoint.date,
+        cumulativeUnits: lastPoint.cumulativeUnits,
+        trendline: null,
+      });
+    }
   } else {
-    // Period-scoped chart — only the in-period journal rows.
+    // Custom — period-scoped daily points only, no baseline. Mirrors
+    // the prior multi-timeframe spec, which is explicitly retained.
     periodJournalRows.forEach((j, i) => {
       chartData.push({
         day: i + 1,
@@ -494,6 +559,12 @@ export default async function Dashboard({
           data={chartData}
           scaleUpAt={scaleState.scaleUpAt}
           scaleDownAt={scaleState.scaleDownAt}
+          xAxisLabel={chartXAxisLabel(period)}
+          // Day + All views can span many betting days, so widen the
+          // tick density. Block-based views (week/month/year) and
+          // Custom already have few enough points that the default
+          // spacing is fine.
+          denseTicks={period.kind === "day" || period.kind === "all"}
         />
       </section>
 
@@ -590,15 +661,24 @@ export default async function Dashboard({
               )
             : bucketStreakBreakdown(periodBuckets)
         }
+        unitLabel={streakUnitLabel(period)}
       />
 
       {/* capper summary */}
       <section className="panel p-5">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="kpi-label">Capper Units Summary</h3>
-          <div className="flex gap-3 text-[11px] text-ink-dim">
-            <span>CUMULATIVE</span>
-            <span>{periodColumnHeader(period)}</span>
+        {/* Header uses the SAME 12-column grid as the data rows below,
+            so the CUMULATIVE + period labels sit directly above their
+            columns instead of clustering on the right. The section
+            title takes col-span-6 to mirror the capper-name column;
+            each metric label takes col-span-3 with text-right to
+            match the value alignment. */}
+        <div className="grid grid-cols-12 gap-2 items-center mb-3">
+          <h3 className="kpi-label col-span-6">Capper Units Summary</h3>
+          <div className="col-span-3 text-right text-[11px] text-ink-dim">
+            CUMULATIVE
+          </div>
+          <div className="col-span-3 text-right text-[11px] text-ink-dim">
+            {periodColumnHeader(period)}
           </div>
         </div>
         <div className="divide-y divide-border">

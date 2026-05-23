@@ -5,6 +5,19 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  // Next.js auto-generated metadata image routes. These are NOT static
+  // files (no extension), so the matcher.config's asset exclusion can't
+  // skip them — without explicit public-route whitelisting, Clerk
+  // redirects them to /sign-in for unauthenticated requests, which
+  // means social-media crawlers (Twitter, Slack, iMessage, Discord)
+  // never get the PNG when someone shares a link. Allowing them public
+  // is safe — these routes only render branded marketing imagery, no
+  // user data.
+  "/opengraph-image(.*)",
+  "/twitter-image(.*)",
+  "/apple-icon(.*)",
+  "/icon(.*)",
+  "/favicon(.*)",
 ]);
 
 const PREVIEW = process.env.PREVIEW_MODE === "1";

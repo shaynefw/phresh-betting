@@ -126,6 +126,28 @@ export interface CapperBetEntry {
   sport: string | null;
 }
 
+/**
+ * Per-date historical baseline row imported via the Journal Baseline
+ * Importer. These rows live alongside (and predate) the tracked
+ * capper_day_entries; the recompute_journal SQL function unions both
+ * sources by date so the cumulative columns (Cum $, Cum Units, Run
+ * ROI, Streak) flow continuously from the earliest baseline date.
+ */
+export interface JournalBaselineDay {
+  id: UUID;
+  system_id: UUID;
+  date: string;
+  total_wager: number;
+  total_bets: number;
+  daily_amount_pnl: number;
+  daily_units_pnl: number;
+  wins: number;
+  losses: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface JournalDayEntry {
   id: UUID;
   system_id: UUID;

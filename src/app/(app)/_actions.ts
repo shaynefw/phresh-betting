@@ -220,6 +220,101 @@ export async function upsertSystemBaseline(input: {
   return { ok: true };
 }
 
+/**
+ * Replace the journal_baseline_days for a system with a new set.
+ * Atomic-ish: deletes everything for the system first, then inserts
+ * the new rows. The DB trigger fires recompute_journal once per
+ * write — Postgres batches the trigger per-statement so even a 100-
+ * row insert only triggers one recompute pass.
+ *
+ * Each row must have a valid YYYY-MM-DD date. Wager / bets / pnl /
+ * units / wins / losses default to 0 if missing or invalid; notes
+ * are optional. The (system_id, date) unique constraint means
+ * duplicate dates in the input are silently collapsed by the dedupe
+ * pass below — the first occurrence of each date wins.
+ */
+export async function replaceJournalBaseline(input: {
+  systemId: string;
+  rows: Array<{
+    date: string;
+    total_wager?: number;
+    total_bets?: number;
+    daily_amount_pnl?: number;
+    daily_units_pnl?: number;
+    wins?: number;
+    losses?: number;
+    notes?: string | null;
+  }>;
+}) {
+  if (!(await ownsSystem(input.systemId))) {
+    return { error: "Access denied" };
+  }
+  const sb = createAdminClient();
+
+  // Dedupe by date — keep the first occurrence.
+  const seen = new Set<string>();
+  const cleaned: Array<Record<string, unknown>> = [];
+  for (const r of input.rows) {
+    if (!r.date || !/^\d{4}-\d{2}-\d{2}$/.test(r.date)) continue;
+    if (seen.has(r.date)) continue;
+    seen.add(r.date);
+    const totalWager = Number(r.total_wager ?? 0);
+    const totalBets = Math.round(Number(r.total_bets ?? 0));
+    const amtPnl = Number(r.daily_amount_pnl ?? 0);
+    const unitsPnl = Number(r.daily_units_pnl ?? 0);
+    const wins = Math.round(Number(r.wins ?? 0));
+    const losses = Math.round(Number(r.losses ?? 0));
+    if (
+      !Number.isFinite(totalWager) ||
+      !Number.isFinite(amtPnl) ||
+      !Number.isFinite(unitsPnl)
+    ) {
+      continue;
+    }
+    cleaned.push({
+      system_id: input.systemId,
+      date: r.date,
+      total_wager: totalWager,
+      total_bets: totalBets,
+      daily_amount_pnl: amtPnl,
+      daily_units_pnl: unitsPnl,
+      wins,
+      losses,
+      notes: r.notes ?? null,
+    });
+  }
+
+  // Wipe + reinsert. The jbd_after trigger fires recompute_journal
+  // automatically, so the journal table is rebuilt before this
+  // action returns.
+  const { error: delErr } = await sb
+    .from("journal_baseline_days")
+    .delete()
+    .eq("system_id", input.systemId);
+  if (delErr) return { error: delErr.message };
+  if (cleaned.length > 0) {
+    const { error } = await sb.from("journal_baseline_days").insert(cleaned);
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/journal");
+  revalidatePath("/dashboard");
+  return { ok: true, count: cleaned.length };
+}
+
+export async function clearJournalBaseline(systemId: string) {
+  if (!(await ownsSystem(systemId))) return { error: "Access denied" };
+  const sb = createAdminClient();
+  const { error } = await sb
+    .from("journal_baseline_days")
+    .delete()
+    .eq("system_id", systemId);
+  if (error) return { error: error.message };
+  revalidatePath("/journal");
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
 export async function clearSystemBaseline(systemId: string) {
   if (!(await ownsSystem(systemId))) return { error: "Access denied" };
   const sb = createAdminClient();
@@ -409,6 +504,17 @@ interface BackupPayload {
     cumulative_units: number;
     notes?: string | null;
   }>;
+  /** v8+ — per-date Daily Betting Journal baseline rows. */
+  journal_baseline_days?: Array<{
+    date: string;
+    total_wager?: number;
+    total_bets?: number;
+    daily_amount_pnl?: number;
+    daily_units_pnl?: number;
+    wins?: number;
+    losses?: number;
+    notes?: string | null;
+  }>;
   system_baseline?: {
     total_betting_days: number;
     total_bets: number;
@@ -479,6 +585,7 @@ export async function importBackup(systemId: string, payloadJson: string) {
   await sb.from("capper_baselines").delete().eq("system_id", systemId);
   await sb.from("system_baselines").delete().eq("system_id", systemId);
   await sb.from("chart_baseline_points").delete().eq("system_id", systemId);
+  await sb.from("journal_baseline_days").delete().eq("system_id", systemId);
   await sb.from("cappers").delete().eq("system_id", systemId);
 
   const capperIdMap = new Map<string, string>();
@@ -675,6 +782,31 @@ export async function importBackup(systemId: string, payloadJson: string) {
   }
   if (chartPointRows.length > 0) {
     const { error } = await sb.from("chart_baseline_points").insert(chartPointRows);
+    if (error) return { error: error.message };
+  }
+
+  // journal_baseline_days (v8+). Dedupe by date — first wins. Older
+  // backups without this field import as a no-op (no baseline rows).
+  const jbdRows: Array<Record<string, unknown>> = [];
+  const jbdSeen = new Set<string>();
+  for (const r of data.journal_baseline_days ?? []) {
+    if (!r.date || !/^\d{4}-\d{2}-\d{2}$/.test(r.date)) continue;
+    if (jbdSeen.has(r.date)) continue;
+    jbdSeen.add(r.date);
+    jbdRows.push({
+      system_id: systemId,
+      date: r.date,
+      total_wager: Number(r.total_wager ?? 0),
+      total_bets: Math.round(Number(r.total_bets ?? 0)),
+      daily_amount_pnl: Number(r.daily_amount_pnl ?? 0),
+      daily_units_pnl: Number(r.daily_units_pnl ?? 0),
+      wins: Math.round(Number(r.wins ?? 0)),
+      losses: Math.round(Number(r.losses ?? 0)),
+      notes: r.notes ?? null,
+    });
+  }
+  if (jbdRows.length > 0) {
+    const { error } = await sb.from("journal_baseline_days").insert(jbdRows);
     if (error) return { error: error.message };
   }
 

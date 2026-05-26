@@ -72,6 +72,7 @@ export default async function SettingsPage() {
     { data: baselines },
     { data: systemBaselineRow },
     { data: chartPointRows },
+    { data: journalBaselineRows },
   ] = await Promise.all([
     supabase.from("systems").select("*").eq("id", sysId).single(),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
@@ -81,6 +82,7 @@ export default async function SettingsPage() {
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
     supabase.from("system_baselines").select("*").eq("system_id", sysId).maybeSingle(),
     supabase.from("chart_baseline_points").select("*").eq("system_id", sysId).order("date"),
+    supabase.from("journal_baseline_days").select("*").eq("system_id", sysId).order("date"),
   ]);
 
   const system = sys as System;
@@ -89,7 +91,7 @@ export default async function SettingsPage() {
   const chartPoints = (chartPointRows ?? []) as ChartBaselinePoint[];
 
   const exportPayload = {
-    version: 7,
+    version: 8,
     exported_at: new Date().toISOString(),
     system,
     scaling: (scaling ?? []) as ScalingLogEntry[],
@@ -99,6 +101,8 @@ export default async function SettingsPage() {
     capper_baselines: capperBaselines,
     system_baseline: systemBaseline,
     chart_baseline_points: chartPoints,
+    // v8+ — per-date Daily Betting Journal baseline rows
+    journal_baseline_days: (journalBaselineRows ?? []),
   };
 
   return (

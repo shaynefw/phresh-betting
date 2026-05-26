@@ -1,9 +1,10 @@
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
-import type { JournalDayEntry } from "@/lib/types";
+import type { JournalBaselineDay, JournalDayEntry } from "@/lib/types";
 import { fmtMoney, fmtPct, fmtUnits, fmtWinLoss, pctClass } from "@/lib/utils";
 import ExportButton from "@/components/ExportButton";
+import JournalBaselineImporter from "@/components/JournalBaselineImporter";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +21,18 @@ export default async function JournalPage({
   let q = supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date", { ascending: false });
   if (sp.from) q = q.gte("date", sp.from);
   if (sp.to) q = q.lte("date", sp.to);
-  const { data } = await q;
+  // Fetch baseline rows in parallel so the importer can show its
+  // current count + power the Clear button.
+  const [{ data }, { data: baseline }] = await Promise.all([
+    q,
+    supabase
+      .from("journal_baseline_days")
+      .select("*")
+      .eq("system_id", sysId)
+      .order("date"),
+  ]);
   const rows = (data ?? []) as JournalDayEntry[];
+  const baselineRows = (baseline ?? []) as JournalBaselineDay[];
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="journal-root">
@@ -33,7 +44,8 @@ export default async function JournalPage({
             Auto-synced from all active capper days. Read-only — edit a capper day to update a journal row.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <JournalBaselineImporter systemId={sysId} initialRows={baselineRows} />
           <ExportButton targetId="journal-root" filename="journal.png" />
         </div>
       </header>

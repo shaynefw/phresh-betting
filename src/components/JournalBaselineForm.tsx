@@ -9,7 +9,7 @@ import {
   upsertJournalBaselineDay,
 } from "@/app/(app)/_actions";
 import type { JournalBaselineDay } from "@/lib/types";
-import { fmtMoney, fmtPct, fmtWinLoss, pctClass } from "@/lib/utils";
+import { fmtMoney, fmtPct, fmtUnits, fmtWinLoss, pctClass } from "@/lib/utils";
 
 /**
  * Manual entry form for Daily Betting Journal baseline rows.
@@ -24,12 +24,18 @@ import { fmtMoney, fmtPct, fmtWinLoss, pctClass } from "@/lib/utils";
  *   - Date
  *   - Bets
  *   - Wager
- *   - Daily $ PnL
+ *   - Daily $ PnL    ← independent dollar tracking
+ *   - Daily Units   ← independent unit tracking (NOT derived from $ PnL)
  *   - Wins / Losses
  *
  * Auto-displayed (read-only, live-derived from the inputs above):
  *   - Daily ROI  = pnl / wager × 100
  *   - Win Rate   = W-L (pct%)
+ *
+ * Cum $ accumulates from Daily $ PnL; Cum Units accumulates from
+ * Daily Units. They're stored as independent fields and never
+ * back-derive from each other — the recompute_journal SQL sums them
+ * separately by date.
  *
  * Below the form, a list of every baseline row already in the system
  * shows next to a per-row Edit + Delete button. Clicking Edit
@@ -47,12 +53,21 @@ interface FormState {
   bets: string;
   wager: string;
   pnl: string;
+  units: string;
   wins: string;
   losses: string;
 }
 
 function emptyForm(): FormState {
-  return { date: "", bets: "", wager: "", pnl: "", wins: "", losses: "" };
+  return {
+    date: "",
+    bets: "",
+    wager: "",
+    pnl: "",
+    units: "",
+    wins: "",
+    losses: "",
+  };
 }
 
 function fromRow(r: JournalBaselineDay): FormState {
@@ -61,6 +76,7 @@ function fromRow(r: JournalBaselineDay): FormState {
     bets: String(r.total_bets ?? 0),
     wager: String(r.total_wager ?? 0),
     pnl: String(r.daily_amount_pnl ?? 0),
+    units: String(r.daily_units_pnl ?? 0),
     wins: String(r.wins ?? 0),
     losses: String(r.losses ?? 0),
   };
@@ -109,6 +125,9 @@ export default function JournalBaselineForm({ systemId, initialRows }: Props) {
         total_bets: Math.round(Number(form.bets || 0)),
         total_wager: Number(form.wager || 0),
         daily_amount_pnl: Number(form.pnl || 0),
+        // Independent unit input — Cum Units accumulates from this
+        // field directly, not from Daily $ PnL.
+        daily_units_pnl: Number(form.units || 0),
         wins: winsNum,
         losses: lossesNum,
       });
@@ -253,7 +272,7 @@ export default function JournalBaselineForm({ systemId, initialRows }: Props) {
                 </div>
               </div>
 
-              <div className="grid md:grid-cols-3 gap-3">
+              <div className="grid md:grid-cols-2 gap-3">
                 <div>
                   <label className="label">Daily $ PNL</label>
                   <input
@@ -267,6 +286,24 @@ export default function JournalBaselineForm({ systemId, initialRows }: Props) {
                   />
                 </div>
                 <div>
+                  {/* Daily Units is a SEPARATE manual input — Cum Units
+                      on the Journal accumulates from this column only,
+                      not from Daily $ PnL. */}
+                  <label className="label">Daily Units</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    className="input"
+                    value={form.units}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, units: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-2 gap-3">
+                <div>
                   <label className="label">Daily ROI</label>
                   {/* Read-only derived value — labelled as a real form
                       field so the user sees the metric they listed in
@@ -279,7 +316,7 @@ export default function JournalBaselineForm({ systemId, initialRows }: Props) {
                     {wagerNum > 0 ? fmtPct(dailyRoiPreview) : "—"}
                   </div>
                 </div>
-                <div className="md:col-span-1">
+                <div>
                   <label className="label">Win Rate</label>
                   <div
                     className={`input flex items-center justify-end font-mono ${pctClass(
@@ -378,6 +415,7 @@ export default function JournalBaselineForm({ systemId, initialRows }: Props) {
                         <th className="text-right">Bets</th>
                         <th className="text-right">Wager</th>
                         <th className="text-right">$ PNL</th>
+                        <th className="text-right">Units</th>
                         <th className="text-right">ROI</th>
                         <th className="text-right">W-L</th>
                         <th></th>
@@ -404,6 +442,11 @@ export default function JournalBaselineForm({ systemId, initialRows }: Props) {
                               className={`text-right ${pctClass(r.daily_amount_pnl)}`}
                             >
                               {fmtMoney(r.daily_amount_pnl, { sign: true })}
+                            </td>
+                            <td
+                              className={`text-right ${pctClass(r.daily_units_pnl)}`}
+                            >
+                              {fmtUnits(r.daily_units_pnl)}
                             </td>
                             <td className={`text-right ${pctClass(roi)}`}>
                               {r.total_wager > 0 ? fmtPct(roi) : "—"}

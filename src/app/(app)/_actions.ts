@@ -317,12 +317,10 @@ export async function clearJournalBaseline(systemId: string) {
 
 /**
  * Upsert a single Daily Betting Journal baseline row from the manual
- * entry form. The form collects PnL + wager + wins/losses; this action
- * derives `daily_units_pnl` from the scaling row active on `date`
- * (so the journal's Cum Units column reflects the correct unit count
- * for the system's actual unit size at that date). If no scaling row
- * applies to that date, falls back to unit_size = 1 (units == pnl) —
- * better than zero, which would mute Cum Units entirely.
+ * entry form. Dollar tracking and unit tracking are stored as fully
+ * independent inputs — Cum $ accumulates from `daily_amount_pnl` and
+ * Cum Units accumulates from `daily_units_pnl`. Neither is derived
+ * from the other; the user types both directly.
  *
  * Conflict on (system_id, date) updates in place. The DB trigger then
  * re-runs recompute_journal once and the Daily Betting Journal table
@@ -335,6 +333,8 @@ export async function upsertJournalBaselineDay(input: {
   total_bets: number;
   total_wager: number;
   daily_amount_pnl: number;
+  /** Direct manual input — NOT derived from daily_amount_pnl. */
+  daily_units_pnl: number;
   wins: number;
   losses: number;
   notes?: string | null;
@@ -345,21 +345,8 @@ export async function upsertJournalBaselineDay(input: {
   }
   const sb = createAdminClient();
 
-  // Look up unit size at the target date — most recent scaling row at
-  // or before the date. Falls back to 1 if the system has no scaling
-  // rows yet (rare, but possible for brand-new systems).
-  const { data: scalingRow } = await sb
-    .from("scaling_log_entries")
-    .select("unit_size_dollars")
-    .eq("system_id", input.systemId)
-    .lte("effective_date", input.date)
-    .order("effective_date", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const unitSize = Number(scalingRow?.unit_size_dollars ?? 1);
-  const safeUnit = unitSize > 0 ? unitSize : 1;
   const pnl = Number(input.daily_amount_pnl);
-  const units = Number.isFinite(pnl) ? pnl / safeUnit : 0;
+  const units = Number(input.daily_units_pnl);
 
   const { error } = await sb
     .from("journal_baseline_days")
@@ -370,7 +357,7 @@ export async function upsertJournalBaselineDay(input: {
         total_bets: Math.max(0, Math.round(Number(input.total_bets) || 0)),
         total_wager: Math.max(0, Number(input.total_wager) || 0),
         daily_amount_pnl: Number.isFinite(pnl) ? pnl : 0,
-        daily_units_pnl: units,
+        daily_units_pnl: Number.isFinite(units) ? units : 0,
         wins: Math.max(0, Math.round(Number(input.wins) || 0)),
         losses: Math.max(0, Math.round(Number(input.losses) || 0)),
         notes: input.notes ?? null,

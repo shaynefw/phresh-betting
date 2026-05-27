@@ -4,7 +4,7 @@ import { loadShellContext } from "@/lib/active-system";
 import type { JournalBaselineDay, JournalDayEntry } from "@/lib/types";
 import { fmtMoney, fmtPct, fmtUnits, fmtWinLoss, pctClass } from "@/lib/utils";
 import ExportButton from "@/components/ExportButton";
-import JournalBaselineImporter from "@/components/JournalBaselineImporter";
+import JournalBaselineForm from "@/components/JournalBaselineForm";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +45,7 @@ export default async function JournalPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <JournalBaselineImporter systemId={sysId} initialRows={baselineRows} />
+          <JournalBaselineForm systemId={sysId} initialRows={baselineRows} />
           <ExportButton targetId="journal-root" filename="journal.png" />
         </div>
       </header>

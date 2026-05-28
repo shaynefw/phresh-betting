@@ -24,12 +24,9 @@ import type {
   System,
   SystemBaseline,
 } from "@/lib/types";
-import ChartBaselineImporter from "@/components/ChartBaselineImporter";
 import {
   aggregateBaselines,
   combineWithJournal,
-  effectiveGreenCum,
-  effectiveRedCum,
 } from "@/lib/baseline";
 import { mergeBreakdowns, streakBreakdown } from "@/lib/streaks";
 import { linearRegression } from "@/lib/regression";
@@ -176,59 +173,36 @@ export default async function Dashboard({
     ? summary.currentStreakValue
     : periodStreak.value;
 
-  /**
-   * Dashboard green/red ROI math (per user spec, validated against
-   * real exported data):
-   *   - Cumulative = system_baseline + journal  (capper baselines do
-   *     NOT contribute to the system-level cumulative; they live on
-   *     each capper's page)
-   *   - # Days = full aggregate (capper baselines + system baseline
-   *     + journal) — same denominator as displayed elsewhere on the
-   *     dashboard
-   *   - Avg = Cumulative / # Days
-   *
-   * Verified end-to-end against the user's real export:
-   *   green: cum 714.72 / 37 days = 19.32%
-   *   red:  cum -507.36 / 34 days = -14.92%
-   */
-  const greenRoiCumDisplay =
-    effectiveGreenCum(systemBaselineRaw) + journalSummary.greenRoiCum;
-  const redRoiCumDisplay =
-    effectiveRedCum(systemBaselineRaw) + journalSummary.redRoiCum;
-  const greenAvgDisplay =
-    summary.greenDays === 0 ? 0 : greenRoiCumDisplay / summary.greenDays;
-  const redAvgDisplay =
-    summary.redDays === 0 ? 0 : redRoiCumDisplay / summary.redDays;
-
   const activeRow = activeScalingRow(scalingRows, focusDate);
   // scaling progress now reflects baseline-included cumulative units
   const scaleState = computeScalingState(summary.cumulativeUnits, activeRow);
 
   /**
-   * Chart data assembly.
+   * Chart data assembly — JOURNAL-ONLY.
    *
-   * Three branches:
+   * Aggregate baselines (system_baselines, chart_baseline_points, and
+   * capper_baselines) no longer contribute to this chart. Every point
+   * is sourced from journal_day_entries directly. Pre-tracking history
+   * imported via the Journal Baseline form already lives in
+   * journal_day_entries (UNION'd by recompute_journal), so it shows up
+   * naturally — no separate trajectory needed.
    *
-   *   Day / All — show the full historical trajectory exactly as
-   *   before: baseline points (if imported) + every tracked journal
-   *   row, all plotted at their absolute cumulative-units position.
+   *   Day / All — plot every journal row in strict chronological order
+   *   at its absolute cumulative_units_pnl. X-axis day numbers are
+   *   sequential 1..N.
    *
-   *   Week / Month / Year — build the chart from "block-end" data
-   *   points. Each block is N consecutive BETTING DAYS (7 / 30 / 365)
-   *   pulled from a single chronological sequence of baseline +
-   *   tracked. The cumulative value at the LAST day of each block is
-   *   the data point. A trailing partial block (current week-so-far)
-   *   is also included so the user can see their in-progress position.
-   *   X-axis is renumbered 1..N so it reads as Betting Week / Month /
-   *   Year #N.
+   *   Week / Month / Year — collapse the journal rows into N-betting-
+   *   day blocks (7 / 30 / 365). One data point per complete block at
+   *   the cumulative value of the last day in the block, plus a
+   *   trailing partial-block point so the user sees their in-progress
+   *   position.
    *
-   *   Custom — period-filtered daily points only, no baseline. The
-   *   user explicitly asked for the previous custom-range behavior to
-   *   be preserved.
+   *   Custom — period-filtered journal rows only (already journal-only
+   *   in the prior version).
+   *
+   *   Empty journal → empty chartData array → the chart renders just
+   *   its axes (no line, no trendline). No baseline fallback.
    */
-  const sortedChartPoints = [...chartPoints].sort(
-    (a, b) => a.day_number - b.day_number,
-  );
   const chartData: {
     day: number;
     date: string;
@@ -236,73 +210,29 @@ export default async function Dashboard({
     trendline: number | null;
   }[] = [];
 
-  let trackedStartUnits = 0;
-  let trackedDayOffset = 0;
-
   const fullChartMode = period.kind === "day" || period.kind === "all";
   const blockSize = chartBlockSize(period); // 7 / 30 / 365 for week/month/year
 
   if (fullChartMode) {
-    if (sortedChartPoints.length > 0) {
-      sortedChartPoints.forEach((p) => {
-        chartData.push({
-          day: p.day_number,
-          date: "",
-          cumulativeUnits: Number(p.cumulative_units),
-          trendline: null,
-        });
-      });
-      const last = sortedChartPoints[sortedChartPoints.length - 1];
-      trackedStartUnits = Number(last.cumulative_units);
-      trackedDayOffset = last.day_number;
-    } else if (systemBaseline) {
-      trackedStartUnits = Number(systemBaseline.cumulative_units_pnl ?? 0);
-      trackedDayOffset = systemBaseline.total_betting_days ?? 0;
-      chartData.push({
-        day: trackedDayOffset,
-        date: "baseline",
-        cumulativeUnits: trackedStartUnits,
-        trendline: null,
-      });
-    }
     journalRows.forEach((j, i) => {
       chartData.push({
-        day: trackedDayOffset + i + 1,
+        day: i + 1,
         date: j.date,
-        cumulativeUnits: trackedStartUnits + Number(j.cumulative_units_pnl),
+        cumulativeUnits: Number(j.cumulative_units_pnl),
         trendline: null,
       });
     });
   } else if (blockSize !== null) {
-    // Week / Month / Year — flatten baseline + tracked into one
-    // chronological betting-day sequence, then collapse every N
-    // consecutive days into a single block-end point.
-    const flatPoints: { cumulativeUnits: number; date: string }[] = [];
-    if (sortedChartPoints.length > 0) {
-      sortedChartPoints.forEach((p) => {
-        flatPoints.push({
-          cumulativeUnits: Number(p.cumulative_units),
-          date: "",
-        });
-      });
-      trackedStartUnits = Number(
-        sortedChartPoints[sortedChartPoints.length - 1].cumulative_units,
-      );
-    } else if (systemBaseline) {
-      trackedStartUnits = Number(systemBaseline.cumulative_units_pnl ?? 0);
-      flatPoints.push({
-        cumulativeUnits: trackedStartUnits,
-        date: "baseline",
-      });
-    }
-    journalRows.forEach((j) => {
-      flatPoints.push({
-        cumulativeUnits: trackedStartUnits + Number(j.cumulative_units_pnl),
+    // Week / Month / Year — flatten journal rows into one chronological
+    // betting-day sequence (already journal-only since baselines were
+    // removed), then collapse every N consecutive rows into a single
+    // block-end point.
+    const flatPoints: { cumulativeUnits: number; date: string }[] =
+      journalRows.map((j) => ({
+        cumulativeUnits: Number(j.cumulative_units_pnl),
         date: j.date,
-      });
-    });
+      }));
 
-    // Pull the end-of-block point every N days.
     for (let i = blockSize - 1; i < flatPoints.length; i += blockSize) {
       const p = flatPoints[i];
       chartData.push({
@@ -312,9 +242,6 @@ export default async function Dashboard({
         trendline: null,
       });
     }
-    // Trailing partial block: if the last point isn't already the end
-    // of a complete block, append it so users see their in-progress
-    // position (e.g., a current week with 3 days played so far).
     const fullBlocksConsumed = chartData.length * blockSize;
     if (flatPoints.length > fullBlocksConsumed) {
       const lastPoint = flatPoints[flatPoints.length - 1];
@@ -326,8 +253,7 @@ export default async function Dashboard({
       });
     }
   } else {
-    // Custom — period-scoped daily points only, no baseline. Mirrors
-    // the prior multi-timeframe spec, which is explicitly retained.
+    // Custom — period-filtered journal rows only.
     periodJournalRows.forEach((j, i) => {
       chartData.push({
         day: i + 1,
@@ -348,9 +274,6 @@ export default async function Dashboard({
       p.trendline = fit.slope * p.day + fit.intercept;
     });
   }
-
-  // Compatibility alias used by the existing "starts at baseline" pill
-  const baselineUnits = trackedStartUnits;
 
   /**
    * Per-capper period-units: sum of daily_units_pnl over the days that
@@ -513,34 +436,22 @@ export default async function Dashboard({
         </div>
       </div>
 
-      {/* main chart */}
+      {/* Main chart — journal-only.
+          The big number under the title reads from journalSummary so
+          it matches the chart's most-recent data point exactly. No
+          baseline pills, no system-level ChartBaselineImporter — the
+          chart is fed entirely by journal_day_entries (which already
+          includes any imported baseline history via the Journal
+          Baseline form). */}
       <section className="panel p-5">
         <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
           <div>
-            <div className="kpi-label flex items-center gap-2 flex-wrap">
-              Cumulative Units Over Time
-              {sortedChartPoints.length > 0 && (
-                <span className="pill-info">
-                  {sortedChartPoints.length} baseline point
-                  {sortedChartPoints.length === 1 ? "" : "s"} imported
-                </span>
-              )}
-              {sortedChartPoints.length === 0 && systemBaseline && (
-                <span className="pill-info">
-                  starts at baseline {fmtUnits(baselineUnits)}
-                </span>
-              )}
-            </div>
+            <div className="kpi-label">Cumulative Units Over Time</div>
             <div className="text-2xl font-bold font-mono text-accent mt-0.5">
-              {fmtUnits(summary.cumulativeUnits)}
+              {fmtUnits(journalSummary.cumulativeUnits)}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <ChartBaselineImporter
-              systemId={sysId}
-              capperId={null}
-              initialPoints={chartPoints}
-            />
             <div className="flex gap-3 text-xs text-ink-dim">
               <span className="flex items-center gap-1.5">
                 <span className="h-0.5 w-5 bg-accent inline-block" /> Cumulative Units
@@ -568,36 +479,45 @@ export default async function Dashboard({
         />
       </section>
 
-      {/* performance summary
-          The "Combined" panel always shows lifetime totals (baseline +
-          all tracked) — that's the read-once view of "where are we
-          overall". The smaller DailySummary on the right switches its
-          numbers + title with the active timeframe, so the user sees
-          period-scoped metrics there. */}
+      {/* Combined Performance Summary — journal-only.
+          Every metric in this panel is read directly from the
+          journal_day_entries source via summarizeJournal(). Aggregate
+          baselines (system_baselines, capper_baselines) NO LONGER
+          contribute here. Pre-tracking history is captured via the
+          Journal Baseline Importer (journal_baseline_days), which is
+          UNION'd into journal_day_entries by recompute_journal — so
+          those imported rows naturally show up in journalSummary
+          alongside tracked rows. */}
       <section className="grid lg:grid-cols-2 gap-4">
         <PerformanceSummary
-          title={systemBaseline ? "Combined Performance Summary" : "Performance Summary"}
-          badge={systemBaseline ? <span className="pill-info">baselines + tracked</span> : null}
-          totalDays={summary.totalDays}
-          totalBets={summary.totalBets}
-          totalRisk={summary.totalRisk}
-          cumulativeAmount={summary.cumulativeAmount}
-          cumulativeUnits={summary.cumulativeUnits}
-          runningRoi={summary.runningRoi}
-          winRate={summary.winRate}
-          wins={summary.wins}
-          losses={summary.losses}
-          greenDays={summary.greenDays}
-          redDays={summary.redDays}
-          greenAvgRoi={greenAvgDisplay}
-          redAvgRoi={redAvgDisplay}
-          greenRoiCum={greenRoiCumDisplay}
-          redRoiCum={redRoiCumDisplay}
-          greenProbability={summary.greenProbability}
-          currentStreakType={summary.currentStreakType}
-          currentStreakValue={summary.currentStreakValue}
-          maxWinStreak={summary.maxWinStreak}
-          maxLossStreak={summary.maxLossStreak}
+          title="Combined Performance Summary"
+          totalDays={journalSummary.totalDays}
+          totalBets={journalSummary.totalBets}
+          totalRisk={journalSummary.totalRisk}
+          cumulativeAmount={journalSummary.cumulativeAmount}
+          cumulativeUnits={journalSummary.cumulativeUnits}
+          runningRoi={journalSummary.runningRoi}
+          winRate={journalSummary.winRecord.rate}
+          wins={journalSummary.winRecord.w}
+          losses={journalSummary.winRecord.l}
+          greenDays={journalSummary.greenDays}
+          redDays={journalSummary.redDays}
+          // greenAvgRoi / redAvgRoi: mean ROI across the green / red
+          // journal rows. summarizeJournal already keeps these as
+          // averages over journal data only.
+          greenAvgRoi={journalSummary.greenAvgRoi}
+          redAvgRoi={journalSummary.redAvgRoi}
+          // greenRoiCum / redRoiCum: sum of every green / red journal
+          // day's ROI. recompute_journal stores the running total on
+          // each day's row; the last row carries the cumulative value
+          // (see calc.ts summarizeJournal).
+          greenRoiCum={journalSummary.greenRoiCum}
+          redRoiCum={journalSummary.redRoiCum}
+          greenProbability={journalSummary.greenProbability}
+          currentStreakType={journalSummary.streak.type}
+          currentStreakValue={journalSummary.streak.value}
+          maxWinStreak={journalSummary.maxWinStreak}
+          maxLossStreak={journalSummary.maxLossStreak}
         />
 
         {/* Build a synthetic JournalDayEntry-shaped object holding the

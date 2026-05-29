@@ -175,7 +175,13 @@ export default async function Dashboard({
 
   const activeRow = activeScalingRow(scalingRows, focusDate);
   // scaling progress now reflects baseline-included cumulative units
-  const scaleState = computeScalingState(summary.cumulativeUnits, activeRow);
+  // Scale-up progress reads the cumulative units total straight off
+  // the journal's most recent date — same source of truth used by
+  // the Combined Performance Summary panel and the chart. Aggregate
+  // baseline values are intentionally NOT used here; the journal is
+  // canonical (the Journal Baseline form imports pre-tracking history
+  // into journal_day_entries so it's already included).
+  const scaleState = computeScalingState(journalSummary.cumulativeUnits, activeRow);
 
   /**
    * Chart data assembly — JOURNAL-ONLY.
@@ -419,7 +425,7 @@ export default async function Dashboard({
           <div className="text-xs text-ink-dim mt-1 flex items-center justify-between gap-2">
             <span>{scaleState.bandStartUnits}u <span className="text-muted">scale↓</span></span>
             <span className="font-mono text-ink">
-              {summary.cumulativeUnits.toFixed(2)}u
+              {journalSummary.cumulativeUnits.toFixed(2)}u
             </span>
             <span><span className="text-muted">scale↑</span> {scaleState.scaleUpAt}u</span>
           </div>

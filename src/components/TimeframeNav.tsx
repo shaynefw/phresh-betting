@@ -39,7 +39,7 @@ interface Props {
 }
 
 interface TabDef {
-  kind: Exclude<TimeframeKind, "custom">;
+  kind: Exclude<TimeframeKind, "custom" | "all">;
   label: string;
 }
 
@@ -47,8 +47,8 @@ const TABS: TabDef[] = [
   { kind: "day", label: "Day" },
   { kind: "week", label: "Week" },
   { kind: "month", label: "Month" },
+  { kind: "quarter", label: "Quarter" },
   { kind: "year", label: "Year" },
-  { kind: "all", label: "All" },
 ];
 
 function buildHref(
@@ -127,10 +127,9 @@ export default function TimeframeNav({ kind, anchorDate, from, to }: Props) {
           const isActive = kind === t.kind;
           const href = buildHref(pathname, currentParams, {
             timeframe: t.kind,
-            // Keep `date` for day/week/month/year so the user stays
-            // anchored when switching scopes. Strip it on "all" to
-            // avoid confusion (anchor doesn't apply).
-            ...(t.kind === "all" ? { date: null } : {}),
+            // Keep the `date` anchor when switching scopes so the user
+            // stays focused on the same point in their history while
+            // widening / narrowing the lens.
             from: null,
             to: null,
           });

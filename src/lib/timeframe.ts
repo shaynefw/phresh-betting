@@ -28,12 +28,30 @@ export type TimeframeKind =
   | "day"
   | "week"
   | "month"
+  | "quarter"
   | "year"
   | "all"
   | "custom";
 
 /** Unit of the bucket the period uses for streak math + labels. */
-export type BucketNoun = "day" | "week" | "month" | "year";
+export type BucketNoun = "day" | "week" | "month" | "quarter" | "year";
+
+/**
+ * Journal Week-tab calendar transition.
+ *
+ *   - Dates on or before 2026-05-24 (Sun) use the LEGACY Wed–Tue week
+ *     boundary the user previously tracked against (week N starts on
+ *     Wednesday, ends on the following Tuesday).
+ *   - Dates on or after 2026-05-25 (Mon) use the NEW Mon–Sun week
+ *     boundary going forward.
+ *   - The transitional week (Wed 2026-05-20 through Sun 2026-05-24) is
+ *     a deliberately short 5-day bucket so the run resets cleanly.
+ *
+ * Hard-coded by spec — this is a one-time calendar adjustment, not a
+ * per-system setting.
+ */
+const WEEK_TRANSITION_LAST_DAY = "2026-05-24";
+const WEEK_NEW_REGIME_START = "2026-05-25";
 
 export interface Period {
   kind: TimeframeKind;
@@ -85,6 +103,40 @@ export function sundayOfISOWeek(iso: string): string {
   return addDays(mondayOfISOWeek(iso), 6);
 }
 
+/** Wednesday-of-week (legacy week-start used pre-2026-05-25). */
+function wednesdayOfWeek(iso: string): string {
+  const d = asUTC(iso);
+  const dow = d.getUTCDay(); // 0=Sun, 1=Mon ... 3=Wed ... 6=Sat
+  // diff from current day-of-week back to most recent Wed (3).
+  // dow=3 → 0; dow=4 → -1; dow=5 → -2; dow=6 → -3; dow=0 → -4; dow=1 → -5; dow=2 → -6
+  const diff = dow >= 3 ? 3 - dow : -(dow + 4);
+  d.setUTCDate(d.getUTCDate() + diff);
+  return isoDate(d);
+}
+
+/**
+ * Journal Week-tab bucket key — applies the May-24 calendar transition
+ * (see WEEK_TRANSITION_LAST_DAY above). Dates in the new regime key
+ * on Monday-of-week; dates in the legacy regime key on
+ * Wednesday-of-week. The cutoff is checked by string compare on the
+ * ISO date so timezone math can't drift it.
+ */
+export function journalWeekBucketKey(date: string): string {
+  if (date >= WEEK_NEW_REGIME_START) return mondayOfISOWeek(date);
+  return wednesdayOfWeek(date);
+}
+
+/** Inclusive end date of the journal-week bucket the given date falls in. */
+export function journalWeekBucketEnd(date: string): string {
+  if (date >= WEEK_NEW_REGIME_START) {
+    return sundayOfISOWeek(date);
+  }
+  // Legacy Wed-Tue, but never spill past the transition Sunday.
+  const wed = wednesdayOfWeek(date);
+  const tue = addDays(wed, 6);
+  return tue > WEEK_TRANSITION_LAST_DAY ? WEEK_TRANSITION_LAST_DAY : tue;
+}
+
 export function monthBoundsOf(iso: string): {
   start: string;
   end: string;
@@ -107,6 +159,35 @@ export function yearBoundsOf(iso: string): {
   const d = asUTC(iso);
   const y = d.getUTCFullYear();
   return { start: `${y}-01-01`, end: `${y}-12-31`, year: y };
+}
+
+/**
+ * Calendar-quarter bounds. Q1 = Jan-Mar, Q2 = Apr-Jun, Q3 = Jul-Sep,
+ * Q4 = Oct-Dec — standard accounting quarters, NOT trailing 90-day
+ * blocks. The spec requires calendar quarters explicitly.
+ */
+export function quarterBoundsOf(iso: string): {
+  start: string;
+  end: string;
+  year: number;
+  quarter: 1 | 2 | 3 | 4;
+} {
+  const d = asUTC(iso);
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth(); // 0..11
+  const q = (Math.floor(m / 3) + 1) as 1 | 2 | 3 | 4;
+  const startMonth = (q - 1) * 3;
+  const endMonth = startMonth + 2;
+  const start = new Date(Date.UTC(y, startMonth, 1));
+  const end = new Date(Date.UTC(y, endMonth + 1, 0));
+  return { start: isoDate(start), end: isoDate(end), year: y, quarter: q };
+}
+
+/** Bucket key for a calendar quarter ("2026-Q2"). */
+export function quarterKeyOf(iso: string): string {
+  const d = asUTC(iso);
+  const q = Math.floor(d.getUTCMonth() / 3) + 1;
+  return `${d.getUTCFullYear()}-Q${q}`;
 }
 
 const MONTH_NAMES = [
@@ -133,12 +214,17 @@ const VALID_KINDS = new Set<TimeframeKind>([
   "day",
   "week",
   "month",
+  "quarter",
   "year",
   "all",
   "custom",
 ]);
 
 function coerceKind(s: string | undefined): TimeframeKind {
+  // The "All" tab is gone from the UI as of this update — older
+  // bookmarked URLs with ?timeframe=all silently fall back to "day",
+  // which is the equivalent default view.
+  if (s === "all") return "day";
   if (s && VALID_KINDS.has(s as TimeframeKind)) return s as TimeframeKind;
   return "day";
 }
@@ -208,16 +294,19 @@ export function resolvePeriod(opts: {
   }
 
   if (kind === "week") {
-    const mon = mondayOfISOWeek(focus);
-    const sun = sundayOfISOWeek(focus);
+    // Period covers the calendar week containing the focus date PER
+    // THE TRANSITION RULE — legacy Wed-Tue before 2026-05-25, new
+    // Mon-Sun thereafter, with the transitional Wed-Sun short week.
+    const bucketStart = journalWeekBucketKey(focus);
+    const bucketEnd = journalWeekBucketEnd(focus);
     return {
       kind: "week",
-      start: mon,
-      end: sun,
+      start: bucketStart,
+      end: bucketEnd,
       bucketNoun: "week",
-      label: `Week of ${formatDateMedium(mon)} — ${formatDateMedium(sun)}`,
+      label: `Week of ${formatDateMedium(bucketStart)} — ${formatDateMedium(bucketEnd)}`,
       shortLabel: "Week",
-      bucketKey: (d) => mondayOfISOWeek(d),
+      bucketKey: journalWeekBucketKey,
       anchorDate: focus,
     };
   }
@@ -232,6 +321,20 @@ export function resolvePeriod(opts: {
       label: `${MONTH_NAMES[month]} ${year}`,
       shortLabel: "Month",
       bucketKey: (d) => d.slice(0, 7), // YYYY-MM
+      anchorDate: focus,
+    };
+  }
+
+  if (kind === "quarter") {
+    const { start, end, year, quarter } = quarterBoundsOf(focus);
+    return {
+      kind: "quarter",
+      start,
+      end,
+      bucketNoun: "quarter",
+      label: `Q${quarter} ${year}`,
+      shortLabel: "Quarter",
+      bucketKey: quarterKeyOf,
       anchorDate: focus,
     };
   }
@@ -468,6 +571,8 @@ export function summaryTitle(p: Period): string {
       return `Weekly Summary — ${p.label}`;
     case "month":
       return `Monthly Summary — ${p.label}`;
+    case "quarter":
+      return `Quarterly Summary — ${p.label}`;
     case "year":
       return `Yearly Summary — ${p.label}`;
     case "all":
@@ -486,6 +591,8 @@ export function periodFooterLabel(p: Period): string {
       return "On the Week";
     case "month":
       return "On the Month";
+    case "quarter":
+      return "On the Quarter";
     case "year":
       return "On the Year";
     case "all":
@@ -504,6 +611,8 @@ export function periodColumnHeader(p: Period): string {
       return "ON THE WEEK";
     case "month":
       return "ON THE MONTH";
+    case "quarter":
+      return "ON THE QUARTER";
     case "year":
       return "ON THE YEAR";
     case "all":
@@ -514,9 +623,9 @@ export function periodColumnHeader(p: Period): string {
 }
 
 /**
- * X-axis title for the cumulative-units chart. Always prefixed with
- * "Betting " so the unit reads naturally — "Betting Days", "Betting
- * Weeks", etc.
+ * X-axis title for the cumulative-units chart AND the Betting [Period]
+ * column on the Journal page. Always prefixed with "Betting " so the
+ * unit reads naturally — "Betting Days", "Betting Weeks", etc.
  */
 export function chartXAxisLabel(p: Period): string {
   switch (p.kind) {
@@ -526,6 +635,8 @@ export function chartXAxisLabel(p: Period): string {
       return "Betting Weeks";
     case "month":
       return "Betting Months";
+    case "quarter":
+      return "Betting Quarters";
     case "year":
       return "Betting Years";
     case "all":
@@ -546,6 +657,8 @@ export function streakUnitLabel(p: Period): string {
       return "weeks";
     case "month":
       return "months";
+    case "quarter":
+      return "quarters";
     case "year":
       return "years";
     case "day":
@@ -557,11 +670,11 @@ export function streakUnitLabel(p: Period): string {
 }
 
 /**
- * Betting-day block size used by the Week/Month/Year chart. Each block
- * collapses N consecutive betting days (baseline + tracked combined
- * chronologically) into a single data point at the cumulative position
- * at the end of the block. Returns null for timeframes that don't use
- * block grouping (Day, All, Custom).
+ * Betting-day block size used by the Week/Month/Quarter/Year dashboard
+ * chart. Each block collapses N consecutive betting days into a single
+ * data point at the cumulative position at the end of the block.
+ * Returns null for timeframes that don't use block grouping (Day, All,
+ * Custom).
  */
 export function chartBlockSize(p: Period): number | null {
   switch (p.kind) {
@@ -569,9 +682,195 @@ export function chartBlockSize(p: Period): number | null {
       return 7;
     case "month":
       return 30;
+    case "quarter":
+      // Standard calendar quarter ≈ 91 betting days. Used by the
+      // dashboard chart only — the journal table buckets by actual
+      // calendar quarter (via bucketKey).
+      return 91;
     case "year":
       return 365;
     default:
       return null;
+  }
+}
+
+/**
+ * Journal-page bucket helper.
+ *
+ * Aggregates the journal_day_entries rows that fall in each period
+ * bucket. For Day mode each input row IS its own bucket. For
+ * Week/Month/Quarter/Year, rows are grouped by `period.bucketKey`
+ * and per-bucket totals are summed. Cumulative columns (Cum $, Cum
+ * Units, Run ROI, Streak) read from the LAST row in each bucket,
+ * since those are already running totals through that date.
+ *
+ * Buckets come back sorted by start date ASC. The Journal page assigns
+ * its Betting [Period] sequence number as `index + 1` for the global
+ * chronological ordering required by the spec (oldest = 1).
+ */
+export interface JournalBucket {
+  key: string;
+  startDate: string;
+  endDate: string;
+  totalBets: number;
+  totalWager: number;
+  dailyAmountPnl: number;
+  dailyUnitsPnl: number;
+  wins: number;
+  losses: number;
+  dailyRoiPercent: number;
+  winRatePercent: number;
+  cumulativeAmountPnl: number;
+  cumulativeUnitsPnl: number;
+  runningRoiPercent: number;
+  currentStreakType: StreakType;
+  currentStreakValue: number;
+}
+
+interface JournalRowLike {
+  date: string;
+  total_bets: number | string;
+  total_wager: number | string;
+  daily_amount_pnl: number | string;
+  daily_units_pnl: number | string;
+  wins: number | string;
+  losses: number | string;
+  cumulative_amount_pnl: number | string;
+  cumulative_units_pnl: number | string;
+  running_roi_percent: number | string;
+  current_streak_type: StreakType;
+  current_streak_value: number | string;
+}
+
+export function bucketJournalForPeriod(
+  rows: JournalRowLike[],
+  period: Period,
+): JournalBucket[] {
+  if (rows.length === 0) return [];
+  // Sort ASC so the per-bucket "last row" logic uses true chronological
+  // last, regardless of how the input list was originally sorted.
+  const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+
+  if (period.kind === "day" || period.kind === "all" || period.kind === "custom") {
+    return sorted.map((r) => ({
+      key: r.date,
+      startDate: r.date,
+      endDate: r.date,
+      totalBets: Number(r.total_bets) || 0,
+      totalWager: Number(r.total_wager) || 0,
+      dailyAmountPnl: Number(r.daily_amount_pnl) || 0,
+      dailyUnitsPnl: Number(r.daily_units_pnl) || 0,
+      wins: Number(r.wins) || 0,
+      losses: Number(r.losses) || 0,
+      dailyRoiPercent:
+        Number(r.total_wager) > 0
+          ? (Number(r.daily_amount_pnl) / Number(r.total_wager)) * 100
+          : 0,
+      winRatePercent:
+        Number(r.wins) + Number(r.losses) === 0
+          ? 0
+          : (Number(r.wins) / (Number(r.wins) + Number(r.losses))) * 100,
+      cumulativeAmountPnl: Number(r.cumulative_amount_pnl) || 0,
+      cumulativeUnitsPnl: Number(r.cumulative_units_pnl) || 0,
+      runningRoiPercent: Number(r.running_roi_percent) || 0,
+      currentStreakType: r.current_streak_type,
+      currentStreakValue: Number(r.current_streak_value) || 0,
+    }));
+  }
+
+  // Week / Month / Quarter / Year — group by bucketKey.
+  type Acc = {
+    key: string;
+    startDate: string;
+    endDate: string;
+    totalBets: number;
+    totalWager: number;
+    dailyAmountPnl: number;
+    dailyUnitsPnl: number;
+    wins: number;
+    losses: number;
+    lastRow: JournalRowLike;
+  };
+  const map = new Map<string, Acc>();
+  for (const r of sorted) {
+    const key = period.bucketKey(r.date);
+    let b = map.get(key);
+    if (!b) {
+      b = {
+        key,
+        startDate: r.date,
+        endDate: r.date,
+        totalBets: 0,
+        totalWager: 0,
+        dailyAmountPnl: 0,
+        dailyUnitsPnl: 0,
+        wins: 0,
+        losses: 0,
+        lastRow: r,
+      };
+      map.set(key, b);
+    }
+    b.totalBets += Number(r.total_bets) || 0;
+    b.totalWager += Number(r.total_wager) || 0;
+    b.dailyAmountPnl += Number(r.daily_amount_pnl) || 0;
+    b.dailyUnitsPnl += Number(r.daily_units_pnl) || 0;
+    b.wins += Number(r.wins) || 0;
+    b.losses += Number(r.losses) || 0;
+    // Last row by date — since `sorted` is ASC, the latest r in the
+    // loop is the latest in the bucket.
+    if (r.date >= b.lastRow.date) {
+      b.lastRow = r;
+      b.endDate = r.date;
+    }
+  }
+
+  const out = [...map.values()].map<JournalBucket>((b) => ({
+    key: b.key,
+    startDate: b.startDate,
+    endDate: b.endDate,
+    totalBets: b.totalBets,
+    totalWager: b.totalWager,
+    dailyAmountPnl: b.dailyAmountPnl,
+    dailyUnitsPnl: b.dailyUnitsPnl,
+    wins: b.wins,
+    losses: b.losses,
+    dailyRoiPercent:
+      b.totalWager > 0 ? (b.dailyAmountPnl / b.totalWager) * 100 : 0,
+    winRatePercent:
+      b.wins + b.losses === 0 ? 0 : (b.wins / (b.wins + b.losses)) * 100,
+    cumulativeAmountPnl: Number(b.lastRow.cumulative_amount_pnl) || 0,
+    cumulativeUnitsPnl: Number(b.lastRow.cumulative_units_pnl) || 0,
+    runningRoiPercent: Number(b.lastRow.running_roi_percent) || 0,
+    currentStreakType: b.lastRow.current_streak_type,
+    currentStreakValue: Number(b.lastRow.current_streak_value) || 0,
+  }));
+  out.sort((a, b) => a.startDate.localeCompare(b.startDate));
+  return out;
+}
+
+/**
+ * Human-readable Date-column label for a journal bucket. Day mode
+ * shows the raw ISO date; the other modes show a compact range or
+ * period identifier.
+ */
+export function bucketDateLabel(period: Period, b: JournalBucket): string {
+  switch (period.kind) {
+    case "day":
+    case "all":
+    case "custom":
+      return b.startDate;
+    case "week":
+      return `${formatDateMedium(b.startDate)} — ${formatDateMedium(b.endDate)}`;
+    case "month": {
+      const d = new Date(b.startDate + "T00:00:00Z");
+      return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    }
+    case "quarter": {
+      const d = new Date(b.startDate + "T00:00:00Z");
+      const q = Math.floor(d.getUTCMonth() / 3) + 1;
+      return `Q${q} ${d.getUTCFullYear()}`;
+    }
+    case "year":
+      return b.startDate.slice(0, 4);
   }
 }

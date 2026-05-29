@@ -35,6 +35,7 @@ import {
   bucketRows,
   bucketStreakBreakdown,
   chartBlockSize,
+  chartTooltipUnit,
   chartXAxisLabel,
   computeStreakAcrossBuckets,
   isInPeriod,
@@ -482,6 +483,10 @@ export default async function Dashboard({
           // Custom already have few enough points that the default
           // spacing is fine.
           denseTicks={period.kind === "day" || period.kind === "all"}
+          // Hover tooltip's singular unit label tracks the active tab —
+          // "Week 3", "Month 5", "Quarter 2", etc. instead of a
+          // hardcoded "Day 3".
+          pointUnitLabel={chartTooltipUnit(period)}
         />
       </section>
 

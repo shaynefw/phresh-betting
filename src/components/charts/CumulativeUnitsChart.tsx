@@ -38,6 +38,13 @@ interface Props {
    * don't need this.
    */
   denseTicks?: boolean;
+  /**
+   * Singular unit label the hover tooltip prefixes the data-point
+   * interval number with — "Day" | "Week" | "Month" | "Quarter" |
+   * "Year". The dashboard passes chartTooltipUnit(period) so the
+   * tooltip always matches the active tab instead of hardcoding "Day".
+   */
+  pointUnitLabel?: string;
 }
 
 export default function CumulativeUnitsChart({
@@ -47,6 +54,7 @@ export default function CumulativeUnitsChart({
   height = 320,
   xAxisLabel = "Betting Days",
   denseTicks = false,
+  pointUnitLabel = "Day",
 }: Props) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -107,13 +115,18 @@ export default function CumulativeUnitsChart({
         />
         <Tooltip
           formatter={(v: number) => `${v.toFixed(2)}u`}
+          // pointUnitLabel switches with the active timeframe tab so
+          // the hover panel reads "Week 3", "Month 5", "Quarter 2",
+          // etc. — never hardcoded "Day". The date suffix (e.g.
+          // "• 2026-05-20") is the underlying journal row's date for
+          // block-end points; imported baseline points have no date so
+          // we omit the suffix in that case.
           labelFormatter={(d, payload) => {
             const p = payload?.[0]?.payload as CumulativePoint | undefined;
-            if (!p) return `Day ${d}`;
-            // Imported baseline points have no calendar date; show only "Day N".
+            if (!p) return `${pointUnitLabel} ${d}`;
             return p.date && p.date !== "baseline"
-              ? `Day ${p.day} • ${p.date}`
-              : `Day ${p.day}`;
+              ? `${pointUnitLabel} ${p.day} • ${p.date}`
+              : `${pointUnitLabel} ${p.day}`;
           }}
         />
         {typeof scaleUpAt === "number" && (

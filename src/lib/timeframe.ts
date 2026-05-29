@@ -647,6 +647,31 @@ export function chartXAxisLabel(p: Period): string {
 }
 
 /**
+ * Singular, title-cased unit label for the cumulative-units chart's
+ * hover tooltip. The tooltip prefixes the data point's interval
+ * number with this label — "Day 5", "Week 3", "Month 2", "Quarter 1",
+ * "Year 1" — so the hover wording always matches the active tab
+ * instead of hardcoding "Day".
+ */
+export function chartTooltipUnit(p: Period): string {
+  switch (p.kind) {
+    case "week":
+      return "Week";
+    case "month":
+      return "Month";
+    case "quarter":
+      return "Quarter";
+    case "year":
+      return "Year";
+    case "day":
+    case "all":
+    case "custom":
+    default:
+      return "Day";
+  }
+}
+
+/**
  * Unit noun (plural lowercase) used by the Streak Breakdown panel's
  * "(by ...)" subtitle. Mirrors `bucketNoun` for week/month/year but
  * always returns a plural string ready for direct rendering.

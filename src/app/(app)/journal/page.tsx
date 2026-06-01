@@ -96,7 +96,19 @@ export default async function JournalPage({
         to={period.kind === "custom" ? period.end : null}
       />
 
-      <PeriodCalendar period={period} rows={allRows} />
+      {/* PeriodCalendar is a client component; pass only the
+          serializable subset of `period` so React's flight serializer
+          doesn't choke on Period.bucketKey (a function). */}
+      <PeriodCalendar
+        period={{
+          kind: period.kind,
+          anchorDate: period.anchorDate,
+          label: period.label,
+          start: period.start,
+          end: period.end,
+        }}
+        rows={allRows}
+      />
 
       {/* Period totals — small footer summary so the eye can land on
           a single set of numbers for the displayed parent period. */}

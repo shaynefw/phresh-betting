@@ -11,9 +11,24 @@ import {
   isoDate,
   journalWeekBucketKey,
   journalWeekBucketEnd,
-  type Period,
+  type TimeframeKind,
 } from "@/lib/timeframe";
 import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
+
+/**
+ * Period subset PeriodCalendar receives from its server-component
+ * parents. The full Period type carries a `bucketKey: (date) => string`
+ * function which React's flight serializer rejects when crossing the
+ * server → client boundary, so we accept only the primitive fields the
+ * calendar actually reads.
+ */
+interface SerializablePeriod {
+  kind: TimeframeKind;
+  anchorDate: string;
+  label: string;
+  start: string | null;
+  end: string | null;
+}
 
 /**
  * Period-aware performance calendar.
@@ -35,7 +50,7 @@ import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
  */
 
 interface Props {
-  period: Period;
+  period: SerializablePeriod;
   rows: JournalDayEntry[];
 }
 
@@ -49,7 +64,7 @@ function buildHref(
   return `${pathname}?${next.toString()}`;
 }
 
-function neighborAnchor(period: Period, direction: -1 | 1): string {
+function neighborAnchor(period: SerializablePeriod, direction: -1 | 1): string {
   if (period.kind === "year") {
     const y = Number(period.anchorDate.slice(0, 4));
     return `${y + direction}-${period.anchorDate.slice(5)}`;
@@ -138,7 +153,7 @@ function MonthDayGrid({
   period,
   dayMap,
 }: {
-  period: Period;
+  period: SerializablePeriod;
   dayMap: Map<string, JournalDayEntry>;
 }) {
   // Build a 6-row × 7-col grid covering the full month, padded with
@@ -229,7 +244,7 @@ function QuarterWeekGrid({
   period,
   dayMap,
 }: {
-  period: Period;
+  period: SerializablePeriod;
   dayMap: Map<string, JournalDayEntry>;
 }) {
   if (!period.start || !period.end) return null;
@@ -337,7 +352,7 @@ function YearGrid({
   period,
   dayMap,
 }: {
-  period: Period;
+  period: SerializablePeriod;
   dayMap: Map<string, JournalDayEntry>;
 }) {
   if (!period.start) return null;

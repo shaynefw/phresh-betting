@@ -519,8 +519,20 @@ export default async function Dashboard({
       {/* Period calendar — Day-tab shows a monthly day-grid; Week-tab
           shows a weekly grid for the focus quarter; Year-tab shows a
           monthly grid for the focus year. Each cell tone-codes by
-          units (green/red/neutral). */}
-      <PeriodCalendar period={period} rows={journalRows} />
+          units (green/red/neutral). We pass only the serializable
+          subset of `period` because PeriodCalendar is a client
+          component and the full Period type carries a `bucketKey`
+          function that React's flight serializer rejects. */}
+      <PeriodCalendar
+        period={{
+          kind: period.kind,
+          anchorDate: period.anchorDate,
+          label: period.label,
+          start: period.start,
+          end: period.end,
+        }}
+        rows={journalRows}
+      />
 
       {/* Combined Performance Summary — journal-only.
           Every metric in this panel is read directly from the

@@ -221,15 +221,10 @@ const VALID_KINDS = new Set<TimeframeKind>([
 ]);
 
 function coerceKind(s: string | undefined): TimeframeKind {
-  // Backwards-compat URL coercions:
-  //   - The "All" tab was removed in an earlier update.
-  //   - The Month + Quarter tabs were absorbed by the Day + Week
-  //     redesign: Day-tab now shows a monthly calendar; Week-tab now
-  //     shows a quarterly weekly view. So legacy ?timeframe=month and
-  //     ?timeframe=quarter URLs land on the equivalent new tab.
+  // Day | Week | Month | Quarter | Year are all first-class tabs.
+  // The "All" tab is removed from the UI; legacy URL ?timeframe=all
+  // silently lands on Day.
   if (s === "all") return "day";
-  if (s === "month") return "day";
-  if (s === "quarter") return "week";
   if (s && VALID_KINDS.has(s as TimeframeKind)) return s as TimeframeKind;
   return "day";
 }
@@ -282,25 +277,18 @@ export function resolvePeriod(opts: {
     };
   }
 
-  // Day / Week / Year all key off a single anchor date but resolve
-  // to a different parent period each:
-  //   - Day-tab  → the focus date's MONTH (calendar shows the days in it)
-  //   - Week-tab → the focus date's QUARTER (calendar shows the weeks in it)
-  //   - Year-tab → the focus date's YEAR (calendar shows the months in it)
+  // Day / Week / Month / Quarter / Year — each tab represents a single
+  // period of that exact granularity. The focus date determines which
+  // instance of the period is shown.
   const focus = opts.date ?? opts.fallbackDate;
 
   if (kind === "day") {
-    // The "Day" tab is now a monthly day-grid for the focus date's
-    // calendar month. Period bounds = the month's first..last calendar
-    // day. bucketKey still keys per-day so journal aggregation produces
-    // one bucket per date inside the month.
-    const { start, end, year, month } = monthBoundsOf(focus);
     return {
       kind: "day",
-      start,
-      end,
+      start: focus,
+      end: focus,
       bucketNoun: "day",
-      label: `${MONTH_NAMES[month]} ${year}`,
+      label: formatDateMedium(focus),
       shortLabel: "Day",
       bucketKey: (d) => d,
       anchorDate: focus,
@@ -308,18 +296,16 @@ export function resolvePeriod(opts: {
   }
 
   if (kind === "week") {
-    // The "Week" tab is now a quarterly week-grid for the focus
-    // date's calendar quarter. Period bounds = the quarter's first..
-    // last calendar day. bucketKey uses the journal-week transition
-    // rule (Wed-Tue before 2026-05-25, Mon-Sun after) so aggregated
-    // weeks line up with the rest of the app.
-    const { start, end, year, quarter } = quarterBoundsOf(focus);
+    // Mon-Sun week containing the focus date (per the journal-week
+    // transition rule: Wed-Tue pre-2026-05-25, Mon-Sun thereafter).
+    const bucketStart = journalWeekBucketKey(focus);
+    const bucketEnd = journalWeekBucketEnd(focus);
     return {
       kind: "week",
-      start,
-      end,
+      start: bucketStart,
+      end: bucketEnd,
       bucketNoun: "week",
-      label: `Q${quarter} ${year}`,
+      label: `Week of ${formatDateMedium(bucketStart)} — ${formatDateMedium(bucketEnd)}`,
       shortLabel: "Week",
       bucketKey: journalWeekBucketKey,
       anchorDate: focus,
@@ -578,18 +564,20 @@ export function bucketStreakBreakdown(buckets: BucketAgg[]) {
 /* --------------------------------------------------------------- */
 
 /**
- * Section title shown above the period summary card.
+ * Section title — names the active period exactly.
  *
- * Day-tab summarizes the focus date's MONTH; Week-tab summarizes the
- * QUARTER; Year-tab summarizes the YEAR. The title reads the
- * container the tab represents, not the per-cell resolution.
+ *   Day      → Daily Summary — May 22, 2026
+ *   Week     → Weekly Summary — Week of May 18 — May 24
+ *   Month    → Monthly Summary — May 2026
+ *   Quarter  → Quarterly Summary — Q2 2026
+ *   Year     → Yearly Summary — 2026
  */
 export function summaryTitle(p: Period): string {
   switch (p.kind) {
     case "day":
-      return `Monthly Summary — ${p.label}`;
+      return `Daily Summary — ${p.label}`;
     case "week":
-      return `Quarterly Summary — ${p.label}`;
+      return `Weekly Summary — ${p.label}`;
     case "month":
       return `Monthly Summary — ${p.label}`;
     case "quarter":
@@ -603,13 +591,13 @@ export function summaryTitle(p: Period): string {
   }
 }
 
-/** Bottom-strip + per-capper header label for the displayed parent period. */
+/** Footer pill / capper-column label for the active period. */
 export function periodFooterLabel(p: Period): string {
   switch (p.kind) {
     case "day":
-      return "On the Month";
+      return "On the Day";
     case "week":
-      return "On the Quarter";
+      return "On the Week";
     case "month":
       return "On the Month";
     case "quarter":
@@ -623,13 +611,13 @@ export function periodFooterLabel(p: Period): string {
   }
 }
 
-/** Column header for the per-capper period units. */
+/** Capper Units Summary column header. */
 export function periodColumnHeader(p: Period): string {
   switch (p.kind) {
     case "day":
-      return "ON THE MONTH";
+      return "ON THE DAY";
     case "week":
-      return "ON THE QUARTER";
+      return "ON THE WEEK";
     case "month":
       return "ON THE MONTH";
     case "quarter":
@@ -644,48 +632,37 @@ export function periodColumnHeader(p: Period): string {
 }
 
 /**
- * X-axis title for the cumulative-units chart. The chart's resolution
- * matches the calendar grid for that tab — Day-tab plots daily points
- * inside the month, Week-tab plots weekly points inside the quarter,
- * Year-tab plots monthly points inside the year — so the axis label
- * reads the data-point unit.
+ * X-axis title for the cumulative-units chart on the dashboard. Chart
+ * resolution is per-period across the active tab: daily points across
+ * a week / month / quarter, monthly points across a year.
  */
 export function chartXAxisLabel(p: Period): string {
   switch (p.kind) {
     case "day":
-      return "Betting Days";
     case "week":
-      return "Betting Weeks";
     case "month":
-      return "Betting Months";
     case "quarter":
-      return "Betting Quarters";
+      return "Betting Days";
     case "year":
       return "Betting Months";
     case "all":
-      return "Betting Days";
     case "custom":
       return "Betting Days";
   }
 }
 
 /**
- * Singular, title-cased unit label for the cumulative-units chart's
- * hover tooltip. Reflects the per-point GRANULARITY (not the tab's
- * container period): Day-tab plots one point per day, Week-tab one
- * point per week, Year-tab one point per month.
+ * Hover-tooltip unit. Each tab plots its in-period rows at daily
+ * resolution (so the tooltip prefix reads "Day N") except Year-tab,
+ * which plots monthly aggregates (so "Month N").
  */
 export function chartTooltipUnit(p: Period): string {
   switch (p.kind) {
-    case "week":
-      return "Week";
-    case "month":
-      return "Month";
-    case "quarter":
-      return "Quarter";
     case "year":
-      // Year tab plots months inside the year — so "Month N".
       return "Month";
+    case "week":
+    case "month":
+    case "quarter":
     case "day":
     case "all":
     case "custom":
@@ -929,13 +906,15 @@ export function addMonths(iso: string, n: number): string {
   return isoDate(targetDate);
 }
 
-/** Step the anchor date forward/back by one parent period. */
+/** Step the anchor date forward/back by exactly one period. */
 export function navigatePeriod(period: Period, direction: -1 | 1): string {
   switch (period.kind) {
     case "day":
+      return addDays(period.anchorDate, direction);
+    case "week":
+      return addDays(period.anchorDate, direction * 7);
     case "month":
       return addMonths(period.anchorDate, direction);
-    case "week":
     case "quarter":
       return addMonths(period.anchorDate, direction * 3);
     case "year": {

@@ -34,7 +34,6 @@ import {
   aggregateForPeriod,
   bucketRows,
   bucketStreakBreakdown,
-  chartBlockSize,
   chartTooltipUnit,
   chartXAxisLabel,
   computeStreakAcrossBuckets,
@@ -218,51 +217,23 @@ export default async function Dashboard({
     trendline: number | null;
   }[] = [];
 
-  const fullChartMode = period.kind === "day" || period.kind === "all";
-  const blockSize = chartBlockSize(period); // 7 / 30 / 365 for week/month/year
-
-  if (fullChartMode) {
-    journalRows.forEach((j, i) => {
-      chartData.push({
-        day: i + 1,
-        date: j.date,
-        cumulativeUnits: Number(j.cumulative_units_pnl),
-        trendline: null,
-      });
-    });
-  } else if (blockSize !== null) {
-    // Week / Month / Year — flatten journal rows into one chronological
-    // betting-day sequence (already journal-only since baselines were
-    // removed), then collapse every N consecutive rows into a single
-    // block-end point.
-    const flatPoints: { cumulativeUnits: number; date: string }[] =
-      journalRows.map((j) => ({
-        cumulativeUnits: Number(j.cumulative_units_pnl),
-        date: j.date,
-      }));
-
-    for (let i = blockSize - 1; i < flatPoints.length; i += blockSize) {
-      const p = flatPoints[i];
-      chartData.push({
-        day: chartData.length + 1,
-        date: p.date,
-        cumulativeUnits: p.cumulativeUnits,
-        trendline: null,
-      });
-    }
-    const fullBlocksConsumed = chartData.length * blockSize;
-    if (flatPoints.length > fullBlocksConsumed) {
-      const lastPoint = flatPoints[flatPoints.length - 1];
-      chartData.push({
-        day: chartData.length + 1,
-        date: lastPoint.date,
-        cumulativeUnits: lastPoint.cumulativeUnits,
-        trendline: null,
-      });
-    }
-  } else {
-    // Custom — period-filtered journal rows only.
-    periodJournalRows.forEach((j, i) => {
+  // Chart sourcing per tab:
+  //   Day      → no chart (the hero block is an enlarged Daily Summary)
+  //   Year     → no chart (the hero block is the year-month calendar)
+  //   Week     → daily points across the focus week (Mon-Sun)
+  //   Month    → daily points across the focus month
+  //   Quarter  → daily points across the focus quarter
+  //   All      → full-history daily points
+  //   Custom   → period-filtered daily points
+  //
+  // Every visible chart variant plots in-period rows at their stored
+  // cumulative_units_pnl, with sequential X-axis numbering 1..N.
+  const showsChart =
+    period.kind !== "day" && period.kind !== "year";
+  if (showsChart) {
+    const source =
+      period.kind === "all" ? journalRows : periodJournalRows;
+    source.forEach((j, i) => {
       chartData.push({
         day: i + 1,
         date: j.date,
@@ -444,95 +415,133 @@ export default async function Dashboard({
         </div>
       </div>
 
-      {/* Main chart — journal-only.
-          The big number under the title reads from journalSummary so
-          it matches the chart's most-recent data point exactly. No
-          baseline pills, no system-level ChartBaselineImporter — the
-          chart is fed entirely by journal_day_entries (which already
-          includes any imported baseline history via the Journal
-          Baseline form). */}
-      <section className="panel p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
-          <div>
-            <div className="kpi-label">Cumulative Units Over Time</div>
-            <div className="text-2xl font-bold font-mono text-accent mt-0.5">
-              {fmtUnits(journalSummary.cumulativeUnits)}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex gap-3 text-xs text-ink-dim">
-              <span className="flex items-center gap-1.5">
-                <span className="h-0.5 w-5 bg-accent inline-block" /> Cumulative Units
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="h-0.5 w-5 inline-block"
-                  style={{ backgroundColor: "#d9d141" }}
-                />{" "}
-                Trendline
-              </span>
-            </div>
-          </div>
-        </div>
-        <CumulativeUnitsChart
-          data={chartData}
-          scaleUpAt={scaleState.scaleUpAt}
-          scaleDownAt={scaleState.scaleDownAt}
-          xAxisLabel={chartXAxisLabel(period)}
-          // Day + All views can span many betting days, so widen the
-          // tick density. Block-based views (week/month/year) and
-          // Custom already have few enough points that the default
-          // spacing is fine.
-          denseTicks={period.kind === "day" || period.kind === "all"}
-          // Hover tooltip's singular unit label tracks the active tab —
-          // "Week 3", "Month 5", "Quarter 2", etc. instead of a
-          // hardcoded "Day 3".
-          pointUnitLabel={chartTooltipUnit(period)}
+      {/* Hero block — what fills this slot depends on the active tab.
+            Day      → enlarged Daily Summary, no chart
+            Week     → chart of days across the focus week
+            Month    → chart of days across the focus month
+            Quarter  → chart of days across the focus quarter
+            Year     → PeriodCalendar (year-month grid)
+          The featured 3-metric strip renders below the hero on every
+          tab. */}
+      {period.kind === "year" ? (
+        <PeriodCalendar
+          period={{
+            kind: period.kind,
+            anchorDate: period.anchorDate,
+            label: period.label,
+            start: period.start,
+            end: period.end,
+          }}
+          rows={journalRows}
         />
+      ) : period.kind === "day" ? (
+        <section className="panel p-5 md:p-6">
+          <div className="kpi-label mb-3">{summaryTitle(period)}</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
+            <HeroMetric
+              label="Total # of bets"
+              value={dayJournal?.total_bets ?? 0}
+            />
+            <HeroMetric
+              label="Total Risk"
+              value={fmtMoney(dayJournal?.total_wager ?? 0)}
+            />
+            <HeroMetric
+              label="ROI"
+              value={fmtPct(dayJournal?.daily_roi_percent ?? 0)}
+              tone={dayJournal?.daily_roi_percent ?? 0}
+            />
+            <HeroMetric
+              label="Daily Units"
+              value={fmtUnits(dayJournal?.daily_units_pnl ?? 0)}
+              tone={dayJournal?.daily_units_pnl ?? 0}
+            />
+            <HeroMetric
+              label="Daily $ Profit"
+              value={fmtMoney(dayJournal?.daily_amount_pnl ?? 0, { sign: true })}
+              tone={dayJournal?.daily_amount_pnl ?? 0}
+            />
+            <HeroMetric
+              label="Win Rate"
+              value={
+                dayJournal
+                  ? `${dayJournal.wins}-${dayJournal.losses} (${dayJournal.win_rate_percent.toFixed(0)}%)`
+                  : "—"
+              }
+              tone={
+                dayJournal
+                  ? Number(dayJournal.wins ?? 0) - Number(dayJournal.losses ?? 0)
+                  : undefined
+              }
+            />
+          </div>
+        </section>
+      ) : (
+        // Week / Month / Quarter — daily-resolution chart filtered to the active period.
+        <section className="panel p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+            <div>
+              <div className="kpi-label">
+                {period.kind === "week"
+                  ? "Weekly Performance"
+                  : period.kind === "month"
+                    ? "Monthly Performance"
+                    : period.kind === "quarter"
+                      ? "Quarterly Performance"
+                      : "Cumulative Units Over Time"}
+              </div>
+              <div className="text-2xl font-bold font-mono text-accent mt-0.5">
+                {fmtUnits(periodAgg.cumulativeUnits)}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex gap-3 text-xs text-ink-dim">
+                <span className="flex items-center gap-1.5">
+                  <span className="h-0.5 w-5 bg-accent inline-block" /> Cumulative Units
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="h-0.5 w-5 inline-block"
+                    style={{ backgroundColor: "#d9d141" }}
+                  />{" "}
+                  Trendline
+                </span>
+              </div>
+            </div>
+          </div>
+          <CumulativeUnitsChart
+            data={chartData}
+            scaleUpAt={scaleState.scaleUpAt}
+            scaleDownAt={scaleState.scaleDownAt}
+            xAxisLabel={chartXAxisLabel(period)}
+            denseTicks={false}
+            pointUnitLabel={chartTooltipUnit(period)}
+          />
+        </section>
+      )}
 
-        {/* Featured 3 — the most prominent metric cards on the page.
-            Sits directly under the hero chart so the eye lands on the
-            chart first, then these three at-a-glance numbers. Other
-            metric panels (Performance Summary, Daily Summary, etc.)
-            are visually more restrained so they don't compete. */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
-          <FeaturedMetric
-            label="Profit"
-            value={fmtMoney(journalSummary.cumulativeAmount, { sign: true })}
-            sub={`Units: ${fmtUnits(journalSummary.cumulativeUnits)}`}
-            tone={journalSummary.cumulativeAmount}
-          />
-          <FeaturedMetric
-            label="ROI"
-            value={fmtPct(journalSummary.runningRoi)}
-            sub={`Risked: ${fmtMoney(journalSummary.totalRisk)}`}
-            tone={journalSummary.runningRoi}
-          />
-          <FeaturedMetric
-            label="Record"
-            value={`${journalSummary.winRecord.w} - ${journalSummary.winRecord.l}`}
-            sub={`Win: ${journalSummary.winRecord.rate.toFixed(2)}%`}
-          />
-        </div>
+      {/* Featured 3 metric cards — always visible regardless of tab.
+          Profit / ROI / Record sourced from journalSummary (lifetime
+          totals derived from journal_day_entries). */}
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <FeaturedMetric
+          label="Profit"
+          value={fmtMoney(journalSummary.cumulativeAmount, { sign: true })}
+          sub={`Units: ${fmtUnits(journalSummary.cumulativeUnits)}`}
+          tone={journalSummary.cumulativeAmount}
+        />
+        <FeaturedMetric
+          label="ROI"
+          value={fmtPct(journalSummary.runningRoi)}
+          sub={`Risked: ${fmtMoney(journalSummary.totalRisk)}`}
+          tone={journalSummary.runningRoi}
+        />
+        <FeaturedMetric
+          label="Record"
+          value={`${journalSummary.winRecord.w} - ${journalSummary.winRecord.l}`}
+          sub={`Win: ${journalSummary.winRecord.rate.toFixed(2)}%`}
+        />
       </section>
-
-      {/* Period calendar — Day-tab shows a monthly day-grid; Week-tab
-          shows a weekly grid for the focus quarter; Year-tab shows a
-          monthly grid for the focus year. Each cell tone-codes by
-          units (green/red/neutral). We pass only the serializable
-          subset of `period` because PeriodCalendar is a client
-          component and the full Period type carries a `bucketKey`
-          function that React's flight serializer rejects. */}
-      <PeriodCalendar
-        period={{
-          kind: period.kind,
-          anchorDate: period.anchorDate,
-          label: period.label,
-          start: period.start,
-          end: period.end,
-        }}
-        rows={journalRows}
-      />
 
       {/* Combined Performance Summary — journal-only.
           Every metric in this panel is read directly from the
@@ -575,50 +584,49 @@ export default async function Dashboard({
           maxLossStreak={journalSummary.maxLossStreak}
         />
 
-        {/* Build a synthetic JournalDayEntry-shaped object holding the
-            period's aggregated totals so the existing DailySummary card
-            renders period totals (bets / risk / ROI / units / $ profit /
-            win-rate) instead of just a single day. The non-relevant
-            fields default to neutral values. */}
-        <DailySummary
-          focusDate={period.anchorDate}
-          title={summaryTitle(period)}
-          dayJournal={
-            period.kind === "day"
-              ? (dayJournal ?? null)
-              : ({
-                  id: "synthetic",
-                  system_id: sysId,
-                  date: period.anchorDate,
-                  total_wager: periodAgg.totalRisk,
-                  total_bets: periodAgg.totalBets,
-                  total_system_risk_cumulative: 0,
-                  daily_amount_pnl: periodAgg.cumulativeAmount,
-                  cumulative_amount_pnl: 0,
-                  daily_units_pnl: periodAgg.cumulativeUnits,
-                  cumulative_units_pnl: 0,
-                  daily_roi_percent: periodAgg.runningRoi,
-                  running_roi_percent: 0,
-                  wins: periodAgg.wins,
-                  losses: periodAgg.losses,
-                  win_rate_percent: periodAgg.winRate,
-                  record_wins: 0,
-                  record_losses: 0,
-                  green_day_count: periodAgg.greenDays,
-                  red_day_count: periodAgg.redDays,
-                  green_day_roi_cumulative: 0,
-                  red_day_roi_cumulative: 0,
-                  green_day_avg_roi: periodAgg.greenAvgRoi,
-                  red_day_avg_roi: periodAgg.redAvgRoi,
-                  green_day_probability: periodAgg.greenProbability,
-                  current_streak_value: displayStreakValue,
-                  current_streak_type: displayStreakType,
-                  max_win_streak: 0,
-                  max_loss_streak: 0,
-                  unit_size_used: null,
-                } as JournalDayEntry)
-          }
-        />
+        {/* Day-tab puts the full daily summary in the hero block at
+            the top of the page, so we don't render it here a second
+            time. Every other tab still gets a compact period-summary
+            card alongside the Combined Performance Summary. */}
+        {period.kind !== "day" && (
+          <DailySummary
+            focusDate={period.anchorDate}
+            title={summaryTitle(period)}
+            dayJournal={
+              {
+                id: "synthetic",
+                system_id: sysId,
+                date: period.anchorDate,
+                total_wager: periodAgg.totalRisk,
+                total_bets: periodAgg.totalBets,
+                total_system_risk_cumulative: 0,
+                daily_amount_pnl: periodAgg.cumulativeAmount,
+                cumulative_amount_pnl: 0,
+                daily_units_pnl: periodAgg.cumulativeUnits,
+                cumulative_units_pnl: 0,
+                daily_roi_percent: periodAgg.runningRoi,
+                running_roi_percent: 0,
+                wins: periodAgg.wins,
+                losses: periodAgg.losses,
+                win_rate_percent: periodAgg.winRate,
+                record_wins: 0,
+                record_losses: 0,
+                green_day_count: periodAgg.greenDays,
+                red_day_count: periodAgg.redDays,
+                green_day_roi_cumulative: 0,
+                red_day_roi_cumulative: 0,
+                green_day_avg_roi: periodAgg.greenAvgRoi,
+                red_day_avg_roi: periodAgg.redAvgRoi,
+                green_day_probability: periodAgg.greenProbability,
+                current_streak_value: displayStreakValue,
+                current_streak_type: displayStreakType,
+                max_win_streak: 0,
+                max_loss_streak: 0,
+                unit_size_used: null,
+              } as JournalDayEntry
+            }
+          />
+        )}
       </section>
 
       {/* streak breakdown — week/month/year modes bucket the full
@@ -738,6 +746,39 @@ export default async function Dashboard({
           );
         })()}
       </section>
+    </div>
+  );
+}
+
+/**
+ * Hero metric tile — used by the enlarged Day-tab Daily Summary block
+ * that sits in the chart's slot. Larger than the regular DailySummary
+ * tile (which it visually replaces on Day-tab) so the values read at
+ * the same scale as a chart.
+ */
+function HeroMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: number;
+}) {
+  const cls =
+    typeof tone === "number"
+      ? tone > 0
+        ? "text-good"
+        : tone < 0
+          ? "text-bad"
+          : "text-ink"
+      : "text-ink";
+  return (
+    <div className="bg-bg-panel/60 rounded-md p-4 md:p-5">
+      <div className="kpi-label text-[10px] md:text-[11px] mb-2">{label}</div>
+      <div className={`font-mono text-2xl md:text-3xl font-bold leading-none ${cls}`}>
+        {value}
+      </div>
     </div>
   );
 }

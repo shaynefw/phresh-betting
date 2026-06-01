@@ -39,15 +39,19 @@ interface Props {
 }
 
 interface TabDef {
-  kind: Exclude<TimeframeKind, "custom" | "all">;
+  kind: "day" | "week" | "year";
   label: string;
 }
 
+// New tab semantics:
+//   Day  → calendar of days inside the focus date's MONTH
+//   Week → calendar of weeks inside the focus date's QUARTER
+//   Year → calendar of months inside the focus date's YEAR
+// Month and Quarter no longer have separate tabs; they're absorbed
+// into Day and Week respectively.
 const TABS: TabDef[] = [
   { kind: "day", label: "Day" },
   { kind: "week", label: "Week" },
-  { kind: "month", label: "Month" },
-  { kind: "quarter", label: "Quarter" },
   { kind: "year", label: "Year" },
 ];
 

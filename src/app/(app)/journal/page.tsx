@@ -2,40 +2,29 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type { JournalBaselineDay, JournalDayEntry } from "@/lib/types";
-import {
-  fmtMoney,
-  fmtPct,
-  fmtUnits,
-  fmtWinLoss,
-  pctClass,
-  todayISO,
-} from "@/lib/utils";
-import {
-  bucketJournalForPeriod,
-  bucketDateLabel,
-  chartXAxisLabel,
-  resolvePeriod,
-} from "@/lib/timeframe";
+import { fmtMoney, fmtPct, fmtUnits, todayISO } from "@/lib/utils";
+import { aggregateForPeriod, isInPeriod, resolvePeriod } from "@/lib/timeframe";
 import ExportButton from "@/components/ExportButton";
 import JournalBaselineForm from "@/components/JournalBaselineForm";
+import PeriodCalendar from "@/components/PeriodCalendar";
 import TimeframeNav from "@/components/TimeframeNav";
 
 export const dynamic = "force-dynamic";
 
 /**
- * /journal — the Betting Journal table.
+ * /journal — the Betting Journal.
  *
- * Timeframe-aware: Day shows every journal_day_entries row; Week /
- * Month / Quarter / Year aggregate rows into period buckets and display
- * one row per bucket (totals summed within bucket, cumulative columns
- * read from the LAST journal row in each bucket). The new
- * "Betting [Period]" column right after Date auto-numbers buckets
- * chronologically starting at 1 for the oldest, so Week #13 etc. is
- * always the count from the start of the system's history.
+ * Layout, after the redesign:
  *
- * The from/to filter that used to live above the table has been
- * folded into the TimeframeNav (which is the dashboard's same
- * segmented control). Switching tabs replaces from/to filtering.
+ *   1. Header + Baseline form + Export.
+ *   2. Period tabs (Day | Week | Year) driving which calendar grid
+ *      shows below.
+ *   3. Calendar:
+ *        Day-tab  → 7-col month grid; each cell is one day
+ *        Week-tab → 13-cell quarter grid; each cell is one week
+ *        Year-tab → 4-col month grid; each cell is one month
+ *   4. Period footer summary — Profit, ROI, Record, Days for the
+ *      current parent period.
  */
 
 export default async function JournalPage({
@@ -54,9 +43,6 @@ export default async function JournalPage({
   const sysId = ctx.activeSystemId;
   const supabase = createAdminClient();
 
-  // Always fetch the FULL journal so the Betting [Period] sequence
-  // numbers are global (oldest = 1, newest = N) rather than relative
-  // to a filtered window.
   const [{ data }, { data: baseline }] = await Promise.all([
     supabase
       .from("journal_day_entries")
@@ -80,20 +66,13 @@ export default async function JournalPage({
     fallbackDate: allRows.at(-1)?.date ?? todayISO(),
   });
 
-  // Bucket the full journal once. Each bucket carries the cumulative
-  // values from its LAST journal row (already running totals).
-  const buckets = bucketJournalForPeriod(allRows, period);
-  // Display newest-first while preserving the global ASC seq number
-  // that was assigned at bucket creation time.
-  const displayBuckets = [...buckets]
-    .map((b, i) => ({ b, seq: i + 1 }))
-    .reverse();
-
-  const periodColumnTitle = chartXAxisLabel(period);
+  // Period totals strip below the calendar.
+  const periodRows = allRows.filter((r) => isInPeriod(r.date, period));
+  const periodAgg = aggregateForPeriod(periodRows);
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="journal-root">
-      <header className="flex items-end justify-between gap-3">
+      <header className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <div className="text-[10px] tracking-[0.4em] text-accent uppercase">
             Journal
@@ -117,85 +96,68 @@ export default async function JournalPage({
         to={period.kind === "custom" ? period.end : null}
       />
 
-      <div className="panel p-0">
-        <div className="table-wrap">
-          <table className="tbl font-mono">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th className="text-right">{periodColumnTitle}</th>
-                <th className="text-right">Bets</th>
-                <th className="text-right">Wager</th>
-                <th className="text-right">Daily $ PnL</th>
-                <th className="text-right">Daily Units</th>
-                <th className="text-right">Daily ROI</th>
-                <th className="text-right">Win Rate</th>
-                <th className="text-right">Cum $</th>
-                <th className="text-right">Cum Units</th>
-                <th className="text-right">Run ROI</th>
-                <th className="text-right">Streak</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayBuckets.map(({ b, seq }) => (
-                <tr key={b.key}>
-                  <td>{bucketDateLabel(period, b)}</td>
-                  <td className="text-right font-bold text-accent">{seq}</td>
-                  <td className="text-right">{b.totalBets}</td>
-                  <td className="text-right">{fmtMoney(b.totalWager)}</td>
-                  <td className={`text-right ${pctClass(b.dailyAmountPnl)}`}>
-                    {fmtMoney(b.dailyAmountPnl, { sign: true })}
-                  </td>
-                  <td className={`text-right ${pctClass(b.dailyUnitsPnl)}`}>
-                    {fmtUnits(b.dailyUnitsPnl)}
-                  </td>
-                  <td className={`text-right ${pctClass(b.dailyRoiPercent)}`}>
-                    {fmtPct(b.dailyRoiPercent)}
-                  </td>
-                  <td
-                    className={`text-right ${pctClass(b.wins - b.losses)}`}
-                  >
-                    {fmtWinLoss(b.wins, b.losses)}
-                  </td>
-                  <td
-                    className={`text-right ${pctClass(b.cumulativeAmountPnl)}`}
-                  >
-                    {fmtMoney(b.cumulativeAmountPnl, { sign: true })}
-                  </td>
-                  <td
-                    className={`text-right ${pctClass(b.cumulativeUnitsPnl)}`}
-                  >
-                    {fmtUnits(b.cumulativeUnitsPnl)}
-                  </td>
-                  <td className={`text-right ${pctClass(b.runningRoiPercent)}`}>
-                    {fmtPct(b.runningRoiPercent)}
-                  </td>
-                  <td
-                    className={`text-right ${
-                      b.currentStreakType === "green"
-                        ? "text-good"
-                        : b.currentStreakType === "red"
-                          ? "text-bad"
-                          : "text-ink-dim"
-                    }`}
-                  >
-                    {b.currentStreakType === "neutral_hold"
-                      ? "—"
-                      : `${b.currentStreakType === "green" ? "+" : "-"}${b.currentStreakValue}`}
-                  </td>
-                </tr>
-              ))}
-              {displayBuckets.length === 0 && (
-                <tr>
-                  <td colSpan={12} className="text-center text-ink-dim py-6">
-                    No journal entries yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      <PeriodCalendar period={period} rows={allRows} />
+
+      {/* Period totals — small footer summary so the eye can land on
+          a single set of numbers for the displayed parent period. */}
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <PeriodStat
+          label="Profit"
+          value={fmtMoney(periodAgg.cumulativeAmount, { sign: true })}
+          sub={`Units: ${fmtUnits(periodAgg.cumulativeUnits)}`}
+          tone={periodAgg.cumulativeAmount}
+        />
+        <PeriodStat
+          label="ROI"
+          value={fmtPct(periodAgg.runningRoi)}
+          sub={`Risked: ${fmtMoney(periodAgg.totalRisk)}`}
+          tone={periodAgg.runningRoi}
+        />
+        <PeriodStat
+          label="Record"
+          value={`${periodAgg.wins} - ${periodAgg.losses}`}
+          sub={`Win: ${periodAgg.winRate.toFixed(2)}%`}
+        />
+        <PeriodStat
+          label="Days Tracked"
+          value={String(periodAgg.totalDays)}
+          sub={`${periodAgg.totalBets} bets`}
+        />
+      </section>
+    </div>
+  );
+}
+
+function PeriodStat({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  tone?: number;
+}) {
+  const cls =
+    typeof tone === "number"
+      ? tone > 0
+        ? "text-good"
+        : tone < 0
+          ? "text-bad"
+          : "text-ink"
+      : "text-ink";
+  return (
+    <div className="panel p-4 text-center">
+      <div className="text-[10px] tracking-[0.3em] text-ink-dim uppercase mb-1.5">
+        {label}
       </div>
+      <div className={`text-xl md:text-2xl font-bold font-mono leading-none ${cls}`}>
+        {value}
+      </div>
+      {sub && (
+        <div className="text-[10px] text-ink-dim font-mono mt-1.5">{sub}</div>
+      )}
     </div>
   );
 }

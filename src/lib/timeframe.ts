@@ -221,10 +221,15 @@ const VALID_KINDS = new Set<TimeframeKind>([
 ]);
 
 function coerceKind(s: string | undefined): TimeframeKind {
-  // The "All" tab is gone from the UI as of this update — older
-  // bookmarked URLs with ?timeframe=all silently fall back to "day",
-  // which is the equivalent default view.
+  // Backwards-compat URL coercions:
+  //   - The "All" tab was removed in an earlier update.
+  //   - The Month + Quarter tabs were absorbed by the Day + Week
+  //     redesign: Day-tab now shows a monthly calendar; Week-tab now
+  //     shows a quarterly weekly view. So legacy ?timeframe=month and
+  //     ?timeframe=quarter URLs land on the equivalent new tab.
   if (s === "all") return "day";
+  if (s === "month") return "day";
+  if (s === "quarter") return "week";
   if (s && VALID_KINDS.has(s as TimeframeKind)) return s as TimeframeKind;
   return "day";
 }
@@ -277,16 +282,25 @@ export function resolvePeriod(opts: {
     };
   }
 
-  // Day / Week / Month / Year all key off a single anchor date.
+  // Day / Week / Year all key off a single anchor date but resolve
+  // to a different parent period each:
+  //   - Day-tab  → the focus date's MONTH (calendar shows the days in it)
+  //   - Week-tab → the focus date's QUARTER (calendar shows the weeks in it)
+  //   - Year-tab → the focus date's YEAR (calendar shows the months in it)
   const focus = opts.date ?? opts.fallbackDate;
 
   if (kind === "day") {
+    // The "Day" tab is now a monthly day-grid for the focus date's
+    // calendar month. Period bounds = the month's first..last calendar
+    // day. bucketKey still keys per-day so journal aggregation produces
+    // one bucket per date inside the month.
+    const { start, end, year, month } = monthBoundsOf(focus);
     return {
       kind: "day",
-      start: focus,
-      end: focus,
+      start,
+      end,
       bucketNoun: "day",
-      label: formatDateMedium(focus),
+      label: `${MONTH_NAMES[month]} ${year}`,
       shortLabel: "Day",
       bucketKey: (d) => d,
       anchorDate: focus,
@@ -294,17 +308,18 @@ export function resolvePeriod(opts: {
   }
 
   if (kind === "week") {
-    // Period covers the calendar week containing the focus date PER
-    // THE TRANSITION RULE — legacy Wed-Tue before 2026-05-25, new
-    // Mon-Sun thereafter, with the transitional Wed-Sun short week.
-    const bucketStart = journalWeekBucketKey(focus);
-    const bucketEnd = journalWeekBucketEnd(focus);
+    // The "Week" tab is now a quarterly week-grid for the focus
+    // date's calendar quarter. Period bounds = the quarter's first..
+    // last calendar day. bucketKey uses the journal-week transition
+    // rule (Wed-Tue before 2026-05-25, Mon-Sun after) so aggregated
+    // weeks line up with the rest of the app.
+    const { start, end, year, quarter } = quarterBoundsOf(focus);
     return {
       kind: "week",
-      start: bucketStart,
-      end: bucketEnd,
+      start,
+      end,
       bucketNoun: "week",
-      label: `Week of ${formatDateMedium(bucketStart)} — ${formatDateMedium(bucketEnd)}`,
+      label: `Q${quarter} ${year}`,
       shortLabel: "Week",
       bucketKey: journalWeekBucketKey,
       anchorDate: focus,
@@ -562,13 +577,19 @@ export function bucketStreakBreakdown(buckets: BucketAgg[]) {
 /* Wording helpers                                                 */
 /* --------------------------------------------------------------- */
 
-/** "Daily Summary" / "Weekly Summary" / etc. */
+/**
+ * Section title shown above the period summary card.
+ *
+ * Day-tab summarizes the focus date's MONTH; Week-tab summarizes the
+ * QUARTER; Year-tab summarizes the YEAR. The title reads the
+ * container the tab represents, not the per-cell resolution.
+ */
 export function summaryTitle(p: Period): string {
   switch (p.kind) {
     case "day":
-      return `Daily Summary — ${p.label}`;
+      return `Monthly Summary — ${p.label}`;
     case "week":
-      return `Weekly Summary — ${p.label}`;
+      return `Quarterly Summary — ${p.label}`;
     case "month":
       return `Monthly Summary — ${p.label}`;
     case "quarter":
@@ -582,13 +603,13 @@ export function summaryTitle(p: Period): string {
   }
 }
 
-/** "On the Day" / "On the Week" / etc. — bottom-strip + per-capper header. */
+/** Bottom-strip + per-capper header label for the displayed parent period. */
 export function periodFooterLabel(p: Period): string {
   switch (p.kind) {
     case "day":
-      return "On the Day";
+      return "On the Month";
     case "week":
-      return "On the Week";
+      return "On the Quarter";
     case "month":
       return "On the Month";
     case "quarter":
@@ -606,9 +627,9 @@ export function periodFooterLabel(p: Period): string {
 export function periodColumnHeader(p: Period): string {
   switch (p.kind) {
     case "day":
-      return "ON THE DAY";
+      return "ON THE MONTH";
     case "week":
-      return "ON THE WEEK";
+      return "ON THE QUARTER";
     case "month":
       return "ON THE MONTH";
     case "quarter":
@@ -623,9 +644,11 @@ export function periodColumnHeader(p: Period): string {
 }
 
 /**
- * X-axis title for the cumulative-units chart AND the Betting [Period]
- * column on the Journal page. Always prefixed with "Betting " so the
- * unit reads naturally — "Betting Days", "Betting Weeks", etc.
+ * X-axis title for the cumulative-units chart. The chart's resolution
+ * matches the calendar grid for that tab — Day-tab plots daily points
+ * inside the month, Week-tab plots weekly points inside the quarter,
+ * Year-tab plots monthly points inside the year — so the axis label
+ * reads the data-point unit.
  */
 export function chartXAxisLabel(p: Period): string {
   switch (p.kind) {
@@ -638,7 +661,7 @@ export function chartXAxisLabel(p: Period): string {
     case "quarter":
       return "Betting Quarters";
     case "year":
-      return "Betting Years";
+      return "Betting Months";
     case "all":
       return "Betting Days";
     case "custom":
@@ -648,10 +671,9 @@ export function chartXAxisLabel(p: Period): string {
 
 /**
  * Singular, title-cased unit label for the cumulative-units chart's
- * hover tooltip. The tooltip prefixes the data point's interval
- * number with this label — "Day 5", "Week 3", "Month 2", "Quarter 1",
- * "Year 1" — so the hover wording always matches the active tab
- * instead of hardcoding "Day".
+ * hover tooltip. Reflects the per-point GRANULARITY (not the tab's
+ * container period): Day-tab plots one point per day, Week-tab one
+ * point per week, Year-tab one point per month.
  */
 export function chartTooltipUnit(p: Period): string {
   switch (p.kind) {
@@ -662,7 +684,8 @@ export function chartTooltipUnit(p: Period): string {
     case "quarter":
       return "Quarter";
     case "year":
-      return "Year";
+      // Year tab plots months inside the year — so "Month N".
+      return "Month";
     case "day":
     case "all":
     case "custom":
@@ -695,12 +718,34 @@ export function streakUnitLabel(p: Period): string {
 }
 
 /**
- * Betting-day block size used by the Week/Month/Quarter/Year dashboard
- * chart. Each block collapses N consecutive betting days into a single
- * data point at the cumulative position at the end of the block.
- * Returns null for timeframes that don't use block grouping (Day, All,
- * Custom).
+ * Returns the bucketKey to use for the dashboard chart's data points
+ * inside the displayed period, OR null to plot every in-period
+ * journal row as its own point.
+ *
+ *   Day-tab    → null (one point per day inside the month)
+ *   Week-tab   → journal-week bucket (one point per week inside Q)
+ *   Year-tab   → YYYY-MM (one point per month inside the year)
+ *   Custom     → null (period-filtered daily points)
  */
+export function chartBucketKey(p: Period): ((d: string) => string) | null {
+  switch (p.kind) {
+    case "week":
+      return journalWeekBucketKey;
+    case "year":
+      return (d) => d.slice(0, 7); // YYYY-MM
+    case "month":
+      return journalWeekBucketKey; // legacy month-tab → also bucket by week
+    case "quarter":
+      return journalWeekBucketKey; // legacy quarter-tab → also bucket by week
+    case "day":
+    case "all":
+    case "custom":
+    default:
+      return null;
+  }
+}
+
+/** @deprecated kept for any lingering callers — use chartBucketKey instead. */
 export function chartBlockSize(p: Period): number | null {
   switch (p.kind) {
     case "week":
@@ -708,12 +753,9 @@ export function chartBlockSize(p: Period): number | null {
     case "month":
       return 30;
     case "quarter":
-      // Standard calendar quarter ≈ 91 betting days. Used by the
-      // dashboard chart only — the journal table buckets by actual
-      // calendar quarter (via bucketKey).
       return 91;
     case "year":
-      return 365;
+      return 30;
     default:
       return null;
   }
@@ -870,6 +912,69 @@ export function bucketJournalForPeriod(
     currentStreakValue: Number(b.lastRow.current_streak_value) || 0,
   }));
   out.sort((a, b) => a.startDate.localeCompare(b.startDate));
+  return out;
+}
+
+/* --------------------------------------------------------------- */
+/* Period navigation                                               */
+/* --------------------------------------------------------------- */
+
+/** Add/subtract whole months from a YYYY-MM-DD date in UTC. */
+export function addMonths(iso: string, n: number): string {
+  const d = asUTC(iso);
+  const targetMonth = d.getUTCMonth() + n;
+  const targetDate = new Date(
+    Date.UTC(d.getUTCFullYear(), targetMonth, 1),
+  );
+  return isoDate(targetDate);
+}
+
+/** Step the anchor date forward/back by one parent period. */
+export function navigatePeriod(period: Period, direction: -1 | 1): string {
+  switch (period.kind) {
+    case "day":
+    case "month":
+      return addMonths(period.anchorDate, direction);
+    case "week":
+    case "quarter":
+      return addMonths(period.anchorDate, direction * 3);
+    case "year": {
+      const y = Number(period.anchorDate.slice(0, 4));
+      return `${y + direction}-${period.anchorDate.slice(5)}`;
+    }
+    case "all":
+    case "custom":
+    default:
+      return period.anchorDate;
+  }
+}
+
+/* --------------------------------------------------------------- */
+/* Calendar grid aggregation                                       */
+/* --------------------------------------------------------------- */
+
+export interface DayCellAgg {
+  date: string;
+  totalBets: number;
+  dailyAmountPnl: number;
+  dailyUnitsPnl: number;
+  wins: number;
+  losses: number;
+}
+
+/** Aggregate journal rows by date — one row per date passed through. */
+export function dayCellsFromJournal(rows: JournalRowLike[]): Map<string, DayCellAgg> {
+  const out = new Map<string, DayCellAgg>();
+  for (const r of rows) {
+    out.set(r.date, {
+      date: r.date,
+      totalBets: Number(r.total_bets) || 0,
+      dailyAmountPnl: Number(r.daily_amount_pnl) || 0,
+      dailyUnitsPnl: Number(r.daily_units_pnl) || 0,
+      wins: Number(r.wins) || 0,
+      losses: Number(r.losses) || 0,
+    });
+  }
   return out;
 }
 

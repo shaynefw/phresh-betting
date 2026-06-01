@@ -49,6 +49,7 @@ import ExportButton from "@/components/ExportButton";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import DailySummary from "@/components/DailySummary";
 import PerformanceSummary from "@/components/PerformanceSummary";
+import PeriodCalendar from "@/components/PeriodCalendar";
 import StreakBreakdown from "@/components/StreakBreakdown";
 import TimeframeNav from "@/components/TimeframeNav";
 import {
@@ -488,7 +489,38 @@ export default async function Dashboard({
           // hardcoded "Day 3".
           pointUnitLabel={chartTooltipUnit(period)}
         />
+
+        {/* Featured 3 — the most prominent metric cards on the page.
+            Sits directly under the hero chart so the eye lands on the
+            chart first, then these three at-a-glance numbers. Other
+            metric panels (Performance Summary, Daily Summary, etc.)
+            are visually more restrained so they don't compete. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-5">
+          <FeaturedMetric
+            label="Profit"
+            value={fmtMoney(journalSummary.cumulativeAmount, { sign: true })}
+            sub={`Units: ${fmtUnits(journalSummary.cumulativeUnits)}`}
+            tone={journalSummary.cumulativeAmount}
+          />
+          <FeaturedMetric
+            label="ROI"
+            value={fmtPct(journalSummary.runningRoi)}
+            sub={`Risked: ${fmtMoney(journalSummary.totalRisk)}`}
+            tone={journalSummary.runningRoi}
+          />
+          <FeaturedMetric
+            label="Record"
+            value={`${journalSummary.winRecord.w} - ${journalSummary.winRecord.l}`}
+            sub={`Win: ${journalSummary.winRecord.rate.toFixed(2)}%`}
+          />
+        </div>
       </section>
+
+      {/* Period calendar — Day-tab shows a monthly day-grid; Week-tab
+          shows a weekly grid for the focus quarter; Year-tab shows a
+          monthly grid for the focus year. Each cell tone-codes by
+          units (green/red/neutral). */}
+      <PeriodCalendar period={period} rows={journalRows} />
 
       {/* Combined Performance Summary — journal-only.
           Every metric in this panel is read directly from the
@@ -694,6 +726,45 @@ export default async function Dashboard({
           );
         })()}
       </section>
+    </div>
+  );
+}
+
+/**
+ * Featured metric card — used by the 3-up strip directly under the
+ * hero chart. Largest visual weight on the page (after the chart):
+ * uppercase label, oversized value, supporting line, tone-coded.
+ */
+function FeaturedMetric({
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  label: string;
+  value: React.ReactNode;
+  sub?: React.ReactNode;
+  tone?: number;
+}) {
+  const cls =
+    typeof tone === "number"
+      ? tone > 0
+        ? "text-good"
+        : tone < 0
+          ? "text-bad"
+          : "text-ink"
+      : "text-ink";
+  return (
+    <div className="panel border-accent/10 bg-bg-card/70 p-5 text-center">
+      <div className="text-[10px] tracking-[0.3em] text-ink-dim uppercase mb-2">
+        {label}
+      </div>
+      <div className={`text-3xl md:text-4xl font-bold font-mono leading-none ${cls}`}>
+        {value}
+      </div>
+      {sub && (
+        <div className="text-[11px] text-ink-dim font-mono mt-2">{sub}</div>
+      )}
     </div>
   );
 }

@@ -217,23 +217,31 @@ export default async function Dashboard({
     trendline: number | null;
   }[] = [];
 
-  // Chart sourcing per tab:
-  //   Day      → no chart (the hero block is an enlarged Daily Summary)
-  //   Year     → no chart (the hero block is the year-month calendar)
-  //   Week     → daily points across the focus week (Mon-Sun)
-  //   Month    → daily points across the focus month
-  //   Quarter  → daily points across the focus quarter
-  //   All      → full-history daily points
-  //   Custom   → period-filtered daily points
+  // Lifetime cumulative-units chart, bucketed by the active tab's
+  // interval (per spec — "lifetime cumulative units changes plotted
+  // at that tab's specific interval").
   //
-  // Every visible chart variant plots in-period rows at their stored
-  // cumulative_units_pnl, with sequential X-axis numbering 1..N.
-  const showsChart =
-    period.kind !== "day" && period.kind !== "year";
-  if (showsChart) {
-    const source =
-      period.kind === "all" ? journalRows : periodJournalRows;
-    source.forEach((j, i) => {
+  //   Day      → one point per journal date
+  //   Week     → one point per Mon-Sun bucket
+  //   Month    → one point per YYYY-MM
+  //   Quarter  → one point per YYYY-Qn
+  //   Year     → one point per YYYY
+  //
+  // For each bucket we keep the LAST journal row (by date), which
+  // carries the cumulative position at the end of that bucket — so
+  // the chart traces the running cum-units curve across history at
+  // whatever resolution the tab represents.
+  if (journalRows.length > 0) {
+    const bucketEnd = new Map<string, (typeof journalRows)[number]>();
+    for (const j of journalRows) {
+      const k = period.bucketKey(j.date);
+      const cur = bucketEnd.get(k);
+      if (!cur || j.date > cur.date) bucketEnd.set(k, j);
+    }
+    const ordered = [...bucketEnd.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([, j]) => j);
+    ordered.forEach((j, i) => {
       chartData.push({
         day: i + 1,
         date: j.date,
@@ -415,26 +423,75 @@ export default async function Dashboard({
         </div>
       </div>
 
-      {/* Hero block — what fills this slot depends on the active tab.
-            Day      → enlarged Daily Summary, no chart
-            Week     → chart of days across the focus week
-            Month    → chart of days across the focus month
-            Quarter  → chart of days across the focus quarter
-            Year     → PeriodCalendar (year-month grid)
-          The featured 3-metric strip renders below the hero on every
-          tab. */}
-      {period.kind === "year" ? (
-        <PeriodCalendar
-          period={{
-            kind: period.kind,
-            anchorDate: period.anchorDate,
-            label: period.label,
-            start: period.start,
-            end: period.end,
-          }}
-          rows={journalRows}
+      {/* 1. Lifetime cumulative units chart — same component on every
+            tab, with the data bucketed at the tab's interval
+            (chartData is built upstream per period.bucketKey). */}
+      <section className="panel p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+          <div>
+            <div className="kpi-label">Cumulative Units Over Time</div>
+            <div className="text-2xl font-bold font-mono text-accent mt-0.5">
+              {fmtUnits(journalSummary.cumulativeUnits)}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex gap-3 text-xs text-ink-dim">
+              <span className="flex items-center gap-1.5">
+                <span className="h-0.5 w-5 bg-accent inline-block" /> Cumulative Units
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="h-0.5 w-5 inline-block"
+                  style={{ backgroundColor: "#d9d141" }}
+                />{" "}
+                Trendline
+              </span>
+            </div>
+          </div>
+        </div>
+        <CumulativeUnitsChart
+          data={chartData}
+          scaleUpAt={scaleState.scaleUpAt}
+          scaleDownAt={scaleState.scaleDownAt}
+          xAxisLabel={chartXAxisLabel(period)}
+          pointUnitLabel={chartTooltipUnit(period)}
         />
-      ) : period.kind === "day" ? (
+      </section>
+
+      {/* 2. Featured 3 metric cards — always visible directly under
+            the chart on every tab. Profit / ROI / Record sourced from
+            journalSummary (lifetime totals derived from journal_day_
+            entries). */}
+      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <FeaturedMetric
+          label="Profit"
+          value={fmtMoney(journalSummary.cumulativeAmount, { sign: true })}
+          sub={`Units: ${fmtUnits(journalSummary.cumulativeUnits)}`}
+          tone={journalSummary.cumulativeAmount}
+        />
+        <FeaturedMetric
+          label="ROI"
+          value={fmtPct(journalSummary.runningRoi)}
+          sub={`Risked: ${fmtMoney(journalSummary.totalRisk)}`}
+          tone={journalSummary.runningRoi}
+        />
+        <FeaturedMetric
+          label="Record"
+          value={`${journalSummary.winRecord.w} - ${journalSummary.winRecord.l}`}
+          sub={`Win: ${journalSummary.winRecord.rate.toFixed(2)}%`}
+        />
+      </section>
+
+      {/* 3. Tab-specific section below the featured strip.
+            Day        → Daily Summary (the focus date's per-day KPIs)
+            Week       → PnL calendar of days in the focus week
+            Month      → PnL calendar of days in the focus month
+            Quarter    → PnL calendar of weeks in the focus quarter
+            Year       → PnL calendar of months in the focus year
+          The PnL calendar variants own their own anchor state so the
+          prev / next arrows page through history without touching
+          the dashboard's global filters. */}
+      {period.kind === "day" ? (
         <section className="panel p-5 md:p-6">
           <div className="kpi-label mb-3">{summaryTitle(period)}</div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
@@ -477,71 +534,17 @@ export default async function Dashboard({
           </div>
         </section>
       ) : (
-        // Week / Month / Quarter — daily-resolution chart filtered to the active period.
-        <section className="panel p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
-            <div>
-              <div className="kpi-label">
-                {period.kind === "week"
-                  ? "Weekly Performance"
-                  : period.kind === "month"
-                    ? "Monthly Performance"
-                    : period.kind === "quarter"
-                      ? "Quarterly Performance"
-                      : "Cumulative Units Over Time"}
-              </div>
-              <div className="text-2xl font-bold font-mono text-accent mt-0.5">
-                {fmtUnits(periodAgg.cumulativeUnits)}
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex gap-3 text-xs text-ink-dim">
-                <span className="flex items-center gap-1.5">
-                  <span className="h-0.5 w-5 bg-accent inline-block" /> Cumulative Units
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="h-0.5 w-5 inline-block"
-                    style={{ backgroundColor: "#d9d141" }}
-                  />{" "}
-                  Trendline
-                </span>
-              </div>
-            </div>
-          </div>
-          <CumulativeUnitsChart
-            data={chartData}
-            scaleUpAt={scaleState.scaleUpAt}
-            scaleDownAt={scaleState.scaleDownAt}
-            xAxisLabel={chartXAxisLabel(period)}
-            denseTicks={false}
-            pointUnitLabel={chartTooltipUnit(period)}
-          />
-        </section>
+        <PeriodCalendar
+          period={{
+            kind: period.kind,
+            anchorDate: period.anchorDate,
+            label: period.label,
+            start: period.start,
+            end: period.end,
+          }}
+          rows={journalRows}
+        />
       )}
-
-      {/* Featured 3 metric cards — always visible regardless of tab.
-          Profit / ROI / Record sourced from journalSummary (lifetime
-          totals derived from journal_day_entries). */}
-      <section className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <FeaturedMetric
-          label="Profit"
-          value={fmtMoney(journalSummary.cumulativeAmount, { sign: true })}
-          sub={`Units: ${fmtUnits(journalSummary.cumulativeUnits)}`}
-          tone={journalSummary.cumulativeAmount}
-        />
-        <FeaturedMetric
-          label="ROI"
-          value={fmtPct(journalSummary.runningRoi)}
-          sub={`Risked: ${fmtMoney(journalSummary.totalRisk)}`}
-          tone={journalSummary.runningRoi}
-        />
-        <FeaturedMetric
-          label="Record"
-          value={`${journalSummary.winRecord.w} - ${journalSummary.winRecord.l}`}
-          sub={`Win: ${journalSummary.winRecord.rate.toFixed(2)}%`}
-        />
-      </section>
 
       {/* Combined Performance Summary — journal-only.
           Every metric in this panel is read directly from the

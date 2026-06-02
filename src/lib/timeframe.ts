@@ -632,19 +632,23 @@ export function periodColumnHeader(p: Period): string {
 }
 
 /**
- * X-axis title for the cumulative-units chart on the dashboard. Chart
- * resolution is per-period across the active tab: daily points across
- * a week / month / quarter, monthly points across a year.
+ * X-axis title for the cumulative-units chart on the dashboard. Each
+ * tab plots LIFETIME cumulative units bucketed at that tab's interval
+ * (one point per day / week / month / quarter / year), so the axis
+ * unit matches the tab name exactly.
  */
 export function chartXAxisLabel(p: Period): string {
   switch (p.kind) {
     case "day":
-    case "week":
-    case "month":
-    case "quarter":
       return "Betting Days";
-    case "year":
+    case "week":
+      return "Betting Weeks";
+    case "month":
       return "Betting Months";
+    case "quarter":
+      return "Betting Quarters";
+    case "year":
+      return "Betting Years";
     case "all":
     case "custom":
       return "Betting Days";
@@ -652,17 +656,20 @@ export function chartXAxisLabel(p: Period): string {
 }
 
 /**
- * Hover-tooltip unit. Each tab plots its in-period rows at daily
- * resolution (so the tooltip prefix reads "Day N") except Year-tab,
- * which plots monthly aggregates (so "Month N").
+ * Hover-tooltip unit. Tracks the chart's interval — Day-tab → "Day N",
+ * Week → "Week N", Month → "Month N", Quarter → "Quarter N",
+ * Year → "Year N".
  */
 export function chartTooltipUnit(p: Period): string {
   switch (p.kind) {
-    case "year":
-      return "Month";
     case "week":
+      return "Week";
     case "month":
+      return "Month";
     case "quarter":
+      return "Quarter";
+    case "year":
+      return "Year";
     case "day":
     case "all":
     case "custom":

@@ -1,8 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { JournalDayEntry } from "@/lib/types";
 import {
@@ -11,17 +9,32 @@ import {
   isoDate,
   journalWeekBucketKey,
   journalWeekBucketEnd,
+  monthBoundsOf,
+  quarterBoundsOf,
   type TimeframeKind,
 } from "@/lib/timeframe";
 import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
 
 /**
- * Period subset PeriodCalendar receives from its server-component
- * parents. The full Period type carries a `bucketKey: (date) => string`
- * function which React's flight serializer rejects when crossing the
- * server → client boundary, so we accept only the primitive fields the
- * calendar actually reads.
+ * Period-aware PnL calendar.
+ *
+ *   Week    → 7-cell row for the days of the focus week
+ *   Month   → 7-column grid for the days of the focus month
+ *   Quarter → list of weeks inside the focus quarter
+ *   Year    → 4-column grid for the months of the focus year
+ *
+ * Each cell tone-codes by the period's net units (positive = green
+ * border + tint, negative = red, zero or no data = neutral). The
+ * primary number is the period's net units; the smaller number is
+ * the period's net $ PnL; the trailing row reads the W-L record.
+ *
+ * Navigation is LOCAL: the calendar owns its own anchor state, so
+ * the prev / next chevrons page through history without touching the
+ * dashboard's global ?date= URL param. When the parent rerenders
+ * with a new tab (kind changes) or a new initial anchor (because the
+ * user changed the global date), the local anchor resets.
  */
+
 interface SerializablePeriod {
   kind: TimeframeKind;
   anchorDate: string;
@@ -30,56 +43,26 @@ interface SerializablePeriod {
   end: string | null;
 }
 
-/**
- * Period-aware performance calendar.
- *
- *   Day-tab  → 7-column month grid; each cell is one day
- *   Week-tab → 13-cell grid for the focus quarter; each cell is one week
- *   Year-tab → 4-col × 3-row month grid; each cell is one month
- *
- * Each cell carries: a primary label (day number / week range / month
- * name), the period's net units (large), the period's net $ PnL (small),
- * and the W-L record (small). Color tone follows the existing app
- * rules — green for positive units, red for negative, neutral for zero
- * or no data — with a soft tinted border so the calendar reads at a
- * glance without overwhelming the rest of the dashboard.
- *
- * The header shows the parent period's name + prev/next URL links
- * that step the `date` URL param backward/forward by one parent unit
- * (one month / one quarter / one year).
- */
-
 interface Props {
   period: SerializablePeriod;
   rows: JournalDayEntry[];
 }
 
-function buildHref(
-  pathname: string,
-  current: URLSearchParams,
-  newDate: string,
-): string {
-  const next = new URLSearchParams(current);
-  next.set("date", newDate);
-  return `${pathname}?${next.toString()}`;
-}
-
-function neighborAnchor(period: SerializablePeriod, direction: -1 | 1): string {
-  if (period.kind === "year") {
-    const y = Number(period.anchorDate.slice(0, 4));
-    return `${y + direction}-${period.anchorDate.slice(5)}`;
-  }
-  if (period.kind === "week" || period.kind === "quarter") {
-    return addMonths(period.anchorDate, direction * 3);
-  }
-  // Day / Month tabs both navigate by month.
-  return addMonths(period.anchorDate, direction);
-}
-
 export default function PeriodCalendar({ period, rows }: Props) {
-  const pathname = usePathname() ?? "/dashboard";
-  const sp = useSearchParams();
-  const currentParams = new URLSearchParams(sp?.toString() ?? "");
+  // LOCAL anchor state — initialized from the global anchor but never
+  // pushed back to the URL. Reset whenever the parent passes a new
+  // global anchor (e.g. tab switch).
+  const [anchor, setAnchor] = useState(period.anchorDate);
+  useEffect(() => {
+    setAnchor(period.anchorDate);
+  }, [period.anchorDate, period.kind]);
+
+  // Resolve the displayed period bounds from the local anchor so prev/
+  // next nav can paginate without touching props.
+  const { start, end, headerLabel } = useMemo(
+    () => resolveLocalBounds(period.kind, anchor),
+    [period.kind, anchor],
+  );
 
   const dayMap = useMemo(() => {
     const m = new Map<string, JournalDayEntry>();
@@ -87,49 +70,119 @@ export default function PeriodCalendar({ period, rows }: Props) {
     return m;
   }, [rows]);
 
-  const prevHref = buildHref(pathname, currentParams, neighborAnchor(period, -1));
-  const nextHref = buildHref(pathname, currentParams, neighborAnchor(period, 1));
+  function nav(direction: -1 | 1) {
+    setAnchor((a) => stepAnchor(period.kind, a, direction));
+  }
 
   return (
     <div className="panel p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
-        <Link
-          href={prevHref}
-          prefetch={false}
+        <button
+          type="button"
+          onClick={() => nav(-1)}
           className="p-1.5 rounded-md hover:bg-bg-card text-ink-dim hover:text-ink transition"
           aria-label="Previous period"
         >
           <ChevronLeft className="h-4 w-4" />
-        </Link>
+        </button>
         <div className="text-center">
           <div className="text-[10px] tracking-[0.3em] text-accent uppercase">
-            {period.kind === "year"
-              ? "Yearly Performance"
-              : period.kind === "week"
-                ? "Quarterly Performance"
-                : "Monthly Performance"}
+            {kindHeading(period.kind)}
           </div>
-          <div className="text-base md:text-lg font-bold">{period.label}</div>
+          <div className="text-base md:text-lg font-bold">{headerLabel}</div>
         </div>
-        <Link
-          href={nextHref}
-          prefetch={false}
+        <button
+          type="button"
+          onClick={() => nav(1)}
           className="p-1.5 rounded-md hover:bg-bg-card text-ink-dim hover:text-ink transition"
           aria-label="Next period"
         >
           <ChevronRight className="h-4 w-4" />
-        </Link>
+        </button>
       </div>
 
-      {period.kind === "year" ? (
-        <YearGrid period={period} dayMap={dayMap} />
-      ) : period.kind === "week" ? (
-        <QuarterWeekGrid period={period} dayMap={dayMap} />
-      ) : (
-        <MonthDayGrid period={period} dayMap={dayMap} />
+      {period.kind === "week" && start && end && (
+        <WeekDayGrid start={start} end={end} dayMap={dayMap} />
+      )}
+      {period.kind === "month" && start && end && (
+        <MonthDayGrid start={start} dayMap={dayMap} />
+      )}
+      {period.kind === "quarter" && start && end && (
+        <QuarterWeekGrid start={start} end={end} dayMap={dayMap} />
+      )}
+      {period.kind === "year" && start && (
+        <YearGrid year={Number(start.slice(0, 4))} dayMap={dayMap} />
       )}
     </div>
   );
+}
+
+/* --------------------------------------------------------------- */
+/* Resolve local bounds + navigation                               */
+/* --------------------------------------------------------------- */
+
+function resolveLocalBounds(
+  kind: TimeframeKind,
+  anchor: string,
+): { start: string | null; end: string | null; headerLabel: string } {
+  if (kind === "week") {
+    const s = journalWeekBucketKey(anchor);
+    const e = journalWeekBucketEnd(anchor);
+    return { start: s, end: e, headerLabel: weekRangeLabel(s, e) };
+  }
+  if (kind === "month") {
+    const { start, end, year, month } = monthBoundsOf(anchor);
+    return { start, end, headerLabel: `${MONTH_NAMES[month]} ${year}` };
+  }
+  if (kind === "quarter") {
+    const { start, end, year, quarter } = quarterBoundsOf(anchor);
+    return { start, end, headerLabel: `Q${quarter} ${year}` };
+  }
+  if (kind === "year") {
+    const year = Number(anchor.slice(0, 4));
+    return {
+      start: `${year}-01-01`,
+      end: `${year}-12-31`,
+      headerLabel: String(year),
+    };
+  }
+  return { start: null, end: null, headerLabel: "" };
+}
+
+function stepAnchor(
+  kind: TimeframeKind,
+  anchor: string,
+  direction: -1 | 1,
+): string {
+  switch (kind) {
+    case "week":
+      return addDays(anchor, direction * 7);
+    case "month":
+      return addMonths(anchor, direction);
+    case "quarter":
+      return addMonths(anchor, direction * 3);
+    case "year": {
+      const y = Number(anchor.slice(0, 4));
+      return `${y + direction}-${anchor.slice(5)}`;
+    }
+    default:
+      return anchor;
+  }
+}
+
+function kindHeading(kind: TimeframeKind): string {
+  switch (kind) {
+    case "week":
+      return "Weekly Performance";
+    case "month":
+      return "Monthly Performance";
+    case "quarter":
+      return "Quarterly Performance";
+    case "year":
+      return "Yearly Performance";
+    default:
+      return "Performance";
+  }
 }
 
 /* --------------------------------------------------------------- */
@@ -146,28 +199,94 @@ function cellTone(units: number, hasData: boolean): string {
 }
 
 /* --------------------------------------------------------------- */
-/* Day-tab: month day grid                                         */
+/* Week-tab: 7 days of the focus week                              */
+/* --------------------------------------------------------------- */
+
+function WeekDayGrid({
+  start,
+  end,
+  dayMap,
+}: {
+  start: string;
+  end: string;
+  dayMap: Map<string, JournalDayEntry>;
+}) {
+  // Walk start → end inclusively (≤7 days for full weeks, fewer for
+  // the May-24 transitional bucket). Use the local day-of-week labels
+  // for whichever day each cell actually falls on.
+  const cells: string[] = [];
+  let cur = start;
+  while (cur <= end) {
+    cells.push(cur);
+    cur = addDays(cur, 1);
+  }
+  const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+  return (
+    <div className="grid grid-cols-7 gap-1 md:gap-1.5">
+      {cells.map((date) => {
+        const d = new Date(date + "T00:00:00Z");
+        const row = dayMap.get(date);
+        const units = Number(row?.daily_units_pnl ?? 0);
+        const amt = Number(row?.daily_amount_pnl ?? 0);
+        const hasData = !!row;
+        const dayN = d.getUTCDate();
+        const dow = DOW[d.getUTCDay()];
+        return (
+          <div
+            key={date}
+            className={`relative rounded-md border p-2 md:p-2.5 min-h-[80px] md:min-h-[96px] transition flex flex-col ${cellTone(units, hasData)}`}
+          >
+            <div className="flex items-baseline justify-between">
+              <div className="text-[10px] text-ink-dim tracking-widest uppercase">
+                {dow}
+              </div>
+              <div className="text-xs md:text-sm font-medium text-ink">
+                {dayN}
+              </div>
+            </div>
+            {hasData ? (
+              <div className="mt-auto">
+                <div
+                  className={`text-sm md:text-base font-mono font-bold leading-tight ${pctClass(units)}`}
+                >
+                  {fmtUnits(units)}
+                </div>
+                <div
+                  className={`text-[10px] md:text-[11px] font-mono leading-tight ${pctClass(amt)}`}
+                >
+                  {fmtMoney(amt, { sign: true })}
+                </div>
+                <div className="text-[9px] md:text-[10px] text-ink-dim font-mono leading-tight mt-0.5">
+                  {row.wins}-{row.losses}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* --------------------------------------------------------------- */
+/* Month-tab: 7-col day grid                                       */
 /* --------------------------------------------------------------- */
 
 function MonthDayGrid({
-  period,
+  start,
   dayMap,
 }: {
-  period: SerializablePeriod;
+  start: string;
   dayMap: Map<string, JournalDayEntry>;
 }) {
-  // Build a 6-row × 7-col grid covering the full month, padded with
-  // leading/trailing blanks so the calendar always lines up under the
-  // S M T W T F S header row.
-  if (!period.start || !period.end) return null;
-  const startDate = new Date(period.start + "T00:00:00Z");
+  const startDate = new Date(start + "T00:00:00Z");
   const monthFirst = new Date(
     Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), 1),
   );
   const monthLast = new Date(
     Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth() + 1, 0),
   );
-  const firstDow = monthFirst.getUTCDay(); // 0=Sun
+  const firstDow = monthFirst.getUTCDay();
   const daysInMonth = monthLast.getUTCDate();
 
   const cells: Array<{ date: string | null }> = [];
@@ -203,10 +322,7 @@ function MonthDayGrid({
           return (
             <div
               key={c.date}
-              className={`relative rounded-md border p-1.5 md:p-2 min-h-[58px] md:min-h-[68px] transition flex flex-col ${cellTone(
-                units,
-                hasData,
-              )}`}
+              className={`relative rounded-md border p-1.5 md:p-2 min-h-[58px] md:min-h-[68px] transition flex flex-col ${cellTone(units, hasData)}`}
             >
               <div className="text-[10px] md:text-xs font-medium text-ink">
                 {dayN}
@@ -237,20 +353,18 @@ function MonthDayGrid({
 }
 
 /* --------------------------------------------------------------- */
-/* Week-tab: weeks within a quarter                                */
+/* Quarter-tab: weeks inside the focus quarter                     */
 /* --------------------------------------------------------------- */
 
 function QuarterWeekGrid({
-  period,
+  start,
+  end,
   dayMap,
 }: {
-  period: SerializablePeriod;
+  start: string;
+  end: string;
   dayMap: Map<string, JournalDayEntry>;
 }) {
-  if (!period.start || !period.end) return null;
-  // Build week buckets covering [period.start, period.end]. A standard
-  // quarter is ~13 weeks; we walk by 7 days starting at the bucket's
-  // own start so partial first/last weeks of the quarter render correctly.
   type WeekCell = {
     key: string;
     start: string;
@@ -262,13 +376,11 @@ function QuarterWeekGrid({
     days: number;
   };
   const map = new Map<string, WeekCell>();
-  let cur = period.start;
-  while (cur <= period.end) {
+  let cur = start;
+  while (cur <= end) {
     const key = journalWeekBucketKey(cur);
     const bucketEnd = journalWeekBucketEnd(cur);
-    // Clamp the displayed bucket end to the quarter's end so the cell
-    // labels don't bleed into the next quarter.
-    const clampedEnd = bucketEnd > period.end ? period.end : bucketEnd;
+    const clampedEnd = bucketEnd > end ? end : bucketEnd;
     if (!map.has(key)) {
       map.set(key, {
         key,
@@ -334,31 +446,35 @@ function QuarterWeekGrid({
   );
 }
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const MONTH_NAMES_SHORT = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
 function weekRangeLabel(start: string, end: string): string {
   const a = new Date(start + "T00:00:00Z");
   const b = new Date(end + "T00:00:00Z");
-  const M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   if (a.getUTCMonth() === b.getUTCMonth()) {
-    return `${M[a.getUTCMonth()]} ${a.getUTCDate()}–${b.getUTCDate()}`;
+    return `${MONTH_NAMES_SHORT[a.getUTCMonth()]} ${a.getUTCDate()}–${b.getUTCDate()}`;
   }
-  return `${M[a.getUTCMonth()]} ${a.getUTCDate()} – ${M[b.getUTCMonth()]} ${b.getUTCDate()}`;
+  return `${MONTH_NAMES_SHORT[a.getUTCMonth()]} ${a.getUTCDate()} – ${MONTH_NAMES_SHORT[b.getUTCMonth()]} ${b.getUTCDate()}`;
 }
 
 /* --------------------------------------------------------------- */
-/* Year-tab: months within a year                                  */
+/* Year-tab: months inside the focus year                          */
 /* --------------------------------------------------------------- */
 
 function YearGrid({
-  period,
+  year,
   dayMap,
 }: {
-  period: SerializablePeriod;
+  year: number;
   dayMap: Map<string, JournalDayEntry>;
 }) {
-  if (!period.start) return null;
-  const year = Number(period.start.slice(0, 4));
-  const M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  // Aggregate journal rows into 12 month buckets.
   type MonthCell = {
     month: number;
     units: number;
@@ -367,7 +483,7 @@ function YearGrid({
     losses: number;
     days: number;
   };
-  const months: MonthCell[] = M.map((_, m) => ({
+  const months: MonthCell[] = MONTH_NAMES_SHORT.map((_, m) => ({
     month: m,
     units: 0,
     amount: 0,
@@ -398,7 +514,7 @@ function YearGrid({
           >
             <div className="flex items-baseline justify-between">
               <div className="text-xs tracking-widest text-ink uppercase font-medium">
-                {M[c.month]}
+                {MONTH_NAMES_SHORT[c.month]}
               </div>
               <div className="text-[9px] text-ink-dim font-mono">
                 {c.days} day{c.days === 1 ? "" : "s"}

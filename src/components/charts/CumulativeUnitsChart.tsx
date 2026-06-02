@@ -31,11 +31,9 @@ interface Props {
    */
   xAxisLabel?: string;
   /**
-   * When true, the X-axis renders denser tick labels (smaller
-   * minTickGap + preserveStartEnd) so Day/All views fill the axis
-   * more evenly instead of skipping large stretches. Block-based views
-   * (Week / Month / Year) already have few enough points that they
-   * don't need this.
+   * @deprecated The chart now always renders a tick at every data
+   * point per the no-gaps spec; this prop is ignored and kept only
+   * for backwards-compat with older callers.
    */
   denseTicks?: boolean;
   /**
@@ -53,7 +51,6 @@ export default function CumulativeUnitsChart({
   scaleDownAt,
   height = 320,
   xAxisLabel = "Betting Days",
-  denseTicks = false,
   pointUnitLabel = "Day",
 }: Props) {
   return (
@@ -78,11 +75,17 @@ export default function CumulativeUnitsChart({
           allowDecimals={false}
           tickLine={false}
           axisLine={{ stroke: "#1a2540" }}
-          // Denser ticks for Day/All so labels fill the axis without
-          // huge gaps. minTickGap caps per-pixel spacing; the
-          // preserveStartEnd hint keeps the first + last tick visible.
-          interval={denseTicks ? "preserveStartEnd" : "preserveEnd"}
-          minTickGap={denseTicks ? 20 : 32}
+          // Force a tick at every data point so no labels are skipped
+          // (per spec — "no gaps"). Tick values are derived from the
+          // data's `day` integer column. minTickGap=0 disables the
+          // per-pixel collision filter so Recharts doesn't drop labels.
+          interval={0}
+          minTickGap={0}
+          ticks={
+            data.length > 0
+              ? data.map((d) => d.day)
+              : undefined
+          }
           label={{
             value: xAxisLabel,
             position: "insideBottom",

@@ -60,8 +60,30 @@ export function pctClass(n: number): string {
   return "text-ink-dim";
 }
 
+/**
+ * Returns the current calendar date as YYYY-MM-DD using LOCAL time.
+ *
+ * Prior implementation used `new Date().toISOString().slice(0, 10)`,
+ * which formats the UTC date — so on a US client the "today" preset
+ * inside DayEntryForm (Daily Totals + Bet-Level entry modes) would
+ * roll over to tomorrow at midnight UTC, i.e. 8pm EST / 7pm EDT /
+ * 5pm PDT. That's exactly the "afternoon or evening" rollover users
+ * were hitting; bets entered after that point got dated as the next
+ * day before the actual calendar had advanced.
+ *
+ * Using `getFullYear` / `getMonth` / `getDate` returns the local
+ * calendar parts, so the date only advances when the user's clock
+ * crosses midnight locally — matching the natural "today" that
+ * users perceive. On the server (Vercel UTC), the function still
+ * returns the server's local-which-is-UTC date; that only affects
+ * fallback values for missing journal dates, where UTC is fine.
+ */
 export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export function safeDiv(a: number, b: number): number {

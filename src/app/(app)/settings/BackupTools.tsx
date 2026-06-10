@@ -2,7 +2,6 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { importBackup } from "../_actions";
 import { Download, Upload, FileText } from "lucide-react";
 
 interface Props {
@@ -62,22 +61,54 @@ export default function BackupTools({ systemId, payload }: Props) {
       setErr("No backup to import. Choose a .json file or paste below.");
       return;
     }
+    // Parse client-side so we can hand the route handler a single JSON
+    // body (rather than a wrapped string) and so we surface format
+    // errors before paying for an upload round-trip.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(importJson);
+    } catch {
+      setErr("Invalid JSON");
+      return;
+    }
     start(async () => {
-      const res = await importBackup(systemId, importJson);
-      if (res?.error) {
-        setErr(res.error);
+      let res: Response;
+      try {
+        res = await fetch("/api/import-backup", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ systemId, payload: parsed }),
+        });
+      } catch (ex) {
+        setErr(`Network error: ${ex instanceof Error ? ex.message : String(ex)}`);
         return;
       }
-      const s = res?.summary;
+      type ImportResponse = {
+        error?: string;
+        summary?: Record<string, number | boolean>;
+      };
+      let json: ImportResponse | null = null;
+      try {
+        json = (await res.json()) as ImportResponse;
+      } catch {
+        // Non-JSON response (likely a 500 HTML error page).
+      }
+      if (!res.ok || json?.error) {
+        setErr(json?.error ?? `Import failed (HTTP ${res.status})`);
+        return;
+      }
+      const s = json?.summary;
       if (s) {
         const parts = [
           `${s.cappers} cappers`,
           `${s.days} days`,
           `${s.bets} bets`,
         ];
-        if ("baselines" in s && s.baselines) parts.push(`${s.baselines} capper baselines`);
-        if ("system_baseline" in s && s.system_baseline) parts.push("system baseline");
-        if ("chart_points" in s && s.chart_points) parts.push(`${s.chart_points} chart points`);
+        if (s.baselines) parts.push(`${s.baselines} capper baselines`);
+        if (s.system_baseline) parts.push("system baseline");
+        if (s.chart_points) parts.push(`${s.chart_points} chart points`);
+        if (s.journal_baseline_days)
+          parts.push(`${s.journal_baseline_days} journal baseline days`);
         setMsg(`Imported ${parts.join(", ")}.`);
       }
       setImportJson("");

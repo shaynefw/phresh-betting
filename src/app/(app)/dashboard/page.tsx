@@ -45,6 +45,7 @@ import {
   summaryTitle,
 } from "@/lib/timeframe";
 import ExportButton from "@/components/ExportButton";
+import PmLogo from "@/components/PmLogo";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import DailySummary from "@/components/DailySummary";
 import PerformanceSummary from "@/components/PerformanceSummary";
@@ -306,23 +307,43 @@ export default async function Dashboard({
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="dashboard-root">
-      <header className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-        <div>
-          <div className="text-[10px] tracking-[0.4em] text-accent uppercase">
-            {system?.name ?? "System"}
-          </div>
-          <h1 className="text-xl md:text-3xl font-bold">Betting System Dashboard</h1>
-          <div className="text-ink-dim text-xs md:text-sm mt-1 flex flex-wrap items-center gap-1">
-            <span>{summary.totalDays} betting days · 1u =&nbsp;</span>
-            <span className="text-accent">${scaleState.currentUnitSize}</span>
-            {scaleState.pendingDirection && (
-              <span className="pill-info">
-                → ${scaleState.pendingNextSize} ({scaleState.pendingDirection}) tomorrow
+      {/* Centered banner — matches the reference branding treatment.
+          Shield-PM badges flank the wordmark; the "<date> Results"
+          line below stays in sync with whichever timeframe tab is
+          active by reading period.label (Day → "Jun 10, 2026", Week
+          → "Week of May 18 — May 24, 2026", Month → "May 2026", etc.).
+          Date picker + export controls live on a separate row beneath
+          so they don't pull the banner off-center. */}
+      <header className="relative">
+        <div className="flex items-center justify-center gap-4 md:gap-8 py-4 md:py-6">
+          <PmLogo
+            variant="shield"
+            className="h-14 md:h-20 w-auto shrink-0"
+          />
+          <div className="text-center min-w-0">
+            <div className="text-base md:text-2xl font-extrabold tracking-[0.18em] text-ink uppercase leading-none">
+              {(system?.name ?? "Phresh Mastery").toUpperCase()}&rsquo;S
+            </div>
+            <div className="text-2xl md:text-5xl font-black italic tracking-[0.04em] text-accent uppercase leading-none mt-1 md:mt-2 drop-shadow-[0_0_18px_rgba(34,168,255,0.35)]">
+              Betting System
+            </div>
+            <div className="mt-2 md:mt-3 flex items-center justify-center gap-2 text-ink-dim">
+              <span className="text-accent/60">&#x2666;</span>
+              <span className="italic text-sm md:text-base">
+                {period.label} Results
               </span>
-            )}
+              <span className="text-accent/60">&#x2666;</span>
+            </div>
           </div>
+          <PmLogo
+            variant="shield"
+            className="h-14 md:h-20 w-auto shrink-0"
+          />
         </div>
-        <div className="flex flex-wrap gap-2 items-center">
+
+        {/* Controls row — date picker + PNG export. Set below the
+            banner so the centered branding stays visually balanced. */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <form className="flex gap-2 items-center">
             <input
               type="date"
@@ -332,7 +353,15 @@ export default async function Dashboard({
             />
             <button className="btn-ghost shrink-0" type="submit">Set</button>
           </form>
-          <ExportButton targetId="dashboard-root" filename={`${system?.name ?? "system"}-${focusDate}.png`} />
+          <ExportButton
+            targetId="dashboard-root"
+            filename={`${system?.name ?? "system"}-${focusDate}.png`}
+          />
+          {scaleState.pendingDirection && (
+            <span className="pill-info">
+              1u → ${scaleState.pendingNextSize} ({scaleState.pendingDirection}) tomorrow
+            </span>
+          )}
         </div>
       </header>
 

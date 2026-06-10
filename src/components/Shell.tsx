@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import PmLogo from "@/components/PmLogo";
 
 interface Props {
   email: string;
@@ -56,13 +57,16 @@ export default function Shell({ email, systems, activeSystemId, children }: Prop
         >
           <Menu className="h-5 w-5 text-ink" />
         </button>
-        <div className="flex flex-col items-center leading-tight">
-          <span className="text-[9px] tracking-[0.4em] text-accent uppercase">
-            Phresh Mastery
-          </span>
-          <span className="text-xs text-ink-dim truncate max-w-[180px]">
-            {activeSystem?.name ?? "—"}
-          </span>
+        <div className="flex items-center gap-2 leading-tight">
+          <PmLogo variant="shield" className="h-7 w-auto" />
+          <div className="flex flex-col items-start">
+            <span className="text-[9px] tracking-[0.4em] text-accent uppercase">
+              Phresh Mastery
+            </span>
+            <span className="text-xs text-ink-dim truncate max-w-[160px]">
+              {activeSystem?.name ?? "—"}
+            </span>
+          </div>
         </div>
         {email !== "preview@local.dev" && <UserButton />}
       </header>
@@ -89,11 +93,14 @@ export default function Shell({ email, systems, activeSystemId, children }: Prop
 
       {/* desktop sidebar */}
       <aside className="hidden md:flex w-60 shrink-0 border-r border-border bg-bg-panel/60 flex-col">
-        <div className="p-4 border-b border-border">
-          <div className="text-[10px] tracking-[0.4em] text-accent uppercase">
-            Phresh Mastery
+        <div className="p-4 border-b border-border flex items-center gap-3">
+          <PmLogo variant="shield" className="h-10 w-auto shrink-0" />
+          <div>
+            <div className="text-[10px] tracking-[0.4em] text-accent uppercase">
+              Phresh Mastery
+            </div>
+            <div className="text-base font-semibold">Betting System</div>
           </div>
-          <div className="text-base font-semibold">Betting System</div>
         </div>
         <div className="p-3 border-b border-border">
           <label className="label">Active system</label>
@@ -189,11 +196,14 @@ function DrawerContents({
   return (
     <>
       <div className="p-4 border-b border-border flex items-center justify-between">
-        <div>
-          <div className="text-[10px] tracking-[0.4em] text-accent uppercase">
-            Phresh Mastery
+        <div className="flex items-center gap-3">
+          <PmLogo variant="shield" className="h-9 w-auto shrink-0" />
+          <div>
+            <div className="text-[10px] tracking-[0.4em] text-accent uppercase">
+              Phresh Mastery
+            </div>
+            <div className="text-base font-semibold">Betting System</div>
           </div>
-          <div className="text-base font-semibold">Betting System</div>
         </div>
         <button
           aria-label="Close menu"

@@ -284,12 +284,14 @@ begin
     get diagnostics v_jbd_n = row_count;
   end if;
 
-  -- Triggers back on for the rest of the session, then run the
-  -- recompute functions ONCE per affected capper plus once for the
-  -- journal. That replaces the thousands of per-row trigger fires
-  -- that timed out the old import.
-  set local session_replication_role = 'origin';
-
+  -- Run the recompute functions ONCE per affected capper plus once
+  -- for the journal. CRITICAL: triggers must stay OFF here too —
+  -- recompute_capper does UPDATEs on capper_day_entries, which would
+  -- otherwise re-fire cde_after and recompute_capper recursively.
+  -- That recursion is what makes the per-row trigger path so slow:
+  -- a single recompute_capper call takes ~270ms with the trigger on
+  -- vs ~1ms with the trigger off (measured: 41ms for 30 cappers in
+  -- replica mode vs 6987ms in origin mode).
   for v_capper in
     select id from public.cappers where system_id = p_system_id
   loop
@@ -297,6 +299,9 @@ begin
   end loop;
 
   perform public.recompute_journal(p_system_id);
+  -- session_replication_role was set with SET LOCAL, so it resets to
+  -- 'origin' automatically when this function returns and the
+  -- transaction commits. No explicit reset needed.
 
   return jsonb_build_object(
     'ok', true,

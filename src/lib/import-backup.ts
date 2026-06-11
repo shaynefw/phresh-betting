@@ -143,6 +143,68 @@ export async function runImportBackup(
   }
   const sb = createAdminClient();
 
+  // FAST PATH — call the SECURITY DEFINER RPC defined in migration
+  // 0014_fast_import.sql. It disables triggers via session_replication_
+  // role, bulk-inserts every table, then runs recompute_capper once
+  // per affected capper plus recompute_journal once. This is the only
+  // path that fits inside Supabase's default 8-second statement
+  // timeout for backups of any meaningful size.
+  //
+  // If the RPC doesn't exist yet (user hasn't applied the migration),
+  // we surface a clear error instead of silently falling back to the
+  // slow row-by-row path that's known to time out.
+  const { data: rpcData, error: rpcError } = await sb.rpc("import_backup_fast", {
+    p_system_id: systemId,
+    p_payload: data as unknown as Record<string, unknown>,
+  });
+
+  if (rpcError) {
+    const msg = rpcError.message ?? "";
+    // PostgREST returns PGRST202 / "Could not find the function" when
+    // the migration hasn't been applied yet.
+    if (
+      rpcError.code === "PGRST202" ||
+      /could not find the function|function .*import_backup_fast/i.test(msg)
+    ) {
+      return {
+        ok: false,
+        error:
+          "Backup import requires migration 0014_fast_import.sql. Apply it in the Supabase SQL editor, then try again.",
+      };
+    }
+    return { ok: false, error: msg || "Import failed" };
+  }
+
+  const r = rpcData as {
+    ok: boolean;
+    cappers?: number;
+    days?: number;
+    bets?: number;
+    baselines?: number;
+    system_baseline?: boolean;
+    chart_points?: number;
+    journal_baseline_days?: number;
+  } | null;
+
+  if (r?.ok) {
+    return {
+      ok: true,
+      summary: {
+        cappers: r.cappers ?? 0,
+        days: r.days ?? 0,
+        bets: r.bets ?? 0,
+        baselines: r.baselines ?? 0,
+        system_baseline: !!r.system_baseline,
+        chart_points: r.chart_points ?? 0,
+        journal_baseline_days: r.journal_baseline_days ?? 0,
+      },
+    };
+  }
+
+  // Defensive: RPC returned non-ok shape. Fall through to the legacy
+  // path so we surface a deterministic error rather than hanging.
+
+  // Wipe in FK-safe order. Children first, then parents.
   await sb.from("scaling_log_entries").delete().eq("system_id", systemId);
   await sb.from("capper_bet_entries").delete().eq("system_id", systemId);
   await sb.from("capper_day_entries").delete().eq("system_id", systemId);
@@ -152,8 +214,16 @@ export async function runImportBackup(
   await sb.from("journal_baseline_days").delete().eq("system_id", systemId);
   await sb.from("cappers").delete().eq("system_id", systemId);
 
-  const capperIdMap = new Map<string, string>();
-  const dayIdMap = new Map<string, string>();
+  // PERFORMANCE: every row is inserted in a single bulk statement per
+  // table — the previous per-row loops (31 cappers + 379 days) blew
+  // past Supabase's 8s statement timeout. Bulk inserts also collapse
+  // per-row trigger reruns into one recompute pass per table (see
+  // findings.md: "Postgres batches the trigger per-statement").
+  //
+  // We preserve the original IDs from the backup so we don't need to
+  // remap foreign keys row-by-row. Safe because the wipe above
+  // emptied every table for this system, and UUID collisions across
+  // systems are vanishingly unlikely.
 
   const scalingRows = (data.scaling ?? []).map((r) => {
     const { id: _id, system_id: _sys, ...rest } = r as Record<string, unknown>;
@@ -164,61 +234,56 @@ export async function runImportBackup(
     if (error) return { ok: false, error: error.message };
   }
 
-  for (const c of data.cappers ?? []) {
-    const { data: ins, error } = await sb
-      .from("cappers")
-      .insert({
-        system_id: systemId,
-        name: c.name,
-        base_system_risk_units: c.base_system_risk_units,
-        is_active: c.is_active,
-        is_archived: c.is_archived,
-        is_deleted: c.is_deleted ?? false,
-        is_testing: c.is_testing ?? false,
-        current_phase: c.current_phase,
-        checklist_status: c.checklist_status,
-        sort_order: c.sort_order ?? 0,
-        notes: c.notes ?? null,
-      })
-      .select("id")
-      .single();
-    if (error || !ins) return { ok: false, error: error?.message ?? "capper insert failed" };
-    capperIdMap.set(c.id, ins.id);
+  const capperRows = (data.cappers ?? []).map((c) => ({
+    id: c.id,
+    system_id: systemId,
+    name: c.name,
+    base_system_risk_units: c.base_system_risk_units,
+    is_active: c.is_active,
+    is_archived: c.is_archived,
+    is_deleted: c.is_deleted ?? false,
+    is_testing: c.is_testing ?? false,
+    current_phase: c.current_phase,
+    checklist_status: c.checklist_status,
+    sort_order: c.sort_order ?? 0,
+    notes: c.notes ?? null,
+  }));
+  if (capperRows.length) {
+    const { error } = await sb.from("cappers").insert(capperRows);
+    if (error) return { ok: false, error: error.message };
   }
+  const validCapperIds = new Set(capperRows.map((c) => c.id));
 
-  for (const d of data.capper_days ?? []) {
-    const newCapperId = capperIdMap.get(d.capper_id);
-    if (!newCapperId) continue;
-    const { data: ins, error } = await sb
-      .from("capper_day_entries")
-      .insert({
-        capper_id: newCapperId,
-        system_id: systemId,
-        date: d.date,
-        entry_mode: d.entry_mode,
-        wager_total: d.wager_total,
-        bet_count: d.bet_count,
-        daily_amount_pnl: d.daily_amount_pnl,
-        wins: d.wins,
-        losses: d.losses,
-        unit_size_used: d.unit_size_used,
-        excluded_from_system: d.excluded_from_system ?? false,
-        notes: d.notes ?? null,
-      })
-      .select("id")
-      .single();
-    if (error || !ins) return { ok: false, error: error?.message ?? "day insert failed" };
-    dayIdMap.set(d.id, ins.id);
+  const dayRows = (data.capper_days ?? [])
+    .filter((d) => validCapperIds.has(d.capper_id))
+    .map((d) => ({
+      id: d.id,
+      capper_id: d.capper_id,
+      system_id: systemId,
+      date: d.date,
+      entry_mode: d.entry_mode,
+      wager_total: d.wager_total,
+      bet_count: d.bet_count,
+      daily_amount_pnl: d.daily_amount_pnl,
+      wins: d.wins,
+      losses: d.losses,
+      unit_size_used: d.unit_size_used,
+      excluded_from_system: d.excluded_from_system ?? false,
+      notes: d.notes ?? null,
+    }));
+  if (dayRows.length) {
+    const { error } = await sb.from("capper_day_entries").insert(dayRows);
+    if (error) return { ok: false, error: error.message };
   }
+  const validDayIds = new Set(dayRows.map((d) => d.id));
 
   const betRows: Array<Record<string, unknown>> = [];
   for (const b of data.capper_bets ?? []) {
-    const newDay = dayIdMap.get(b.capper_day_entry_id);
-    const newCapper = capperIdMap.get(b.capper_id);
-    if (!newDay || !newCapper) continue;
+    if (!validDayIds.has(b.capper_day_entry_id)) continue;
+    if (!validCapperIds.has(b.capper_id)) continue;
     betRows.push({
-      capper_day_entry_id: newDay,
-      capper_id: newCapper,
+      capper_day_entry_id: b.capper_day_entry_id,
+      capper_id: b.capper_id,
       system_id: systemId,
       date: b.date,
       wager_amount: b.wager_amount,
@@ -237,10 +302,9 @@ export async function runImportBackup(
 
   const baselineRows: Array<Record<string, unknown>> = [];
   for (const bl of data.capper_baselines ?? []) {
-    const newCapperId = capperIdMap.get(bl.capper_id);
-    if (!newCapperId) continue;
+    if (!validCapperIds.has(bl.capper_id)) continue;
     baselineRows.push({
-      capper_id: newCapperId,
+      capper_id: bl.capper_id,
       system_id: systemId,
       total_betting_days: bl.total_betting_days,
       total_bets: bl.total_bets,
@@ -312,12 +376,12 @@ export async function runImportBackup(
     if (!Number.isFinite(p.cumulative_units)) continue;
     const day = Number(p.day_number);
     if (!Number.isFinite(day) || day < 1) continue;
-    let newCapperId: string | null = null;
+    let capperId: string | null = null;
     if (p.capper_id) {
-      newCapperId = capperIdMap.get(p.capper_id) ?? null;
-      if (!newCapperId) continue;
+      if (!validCapperIds.has(p.capper_id)) continue;
+      capperId = p.capper_id;
     }
-    const scopeKey = newCapperId ?? "__system__";
+    const scopeKey = capperId ?? "__system__";
     let seen = seenByScope.get(scopeKey);
     if (!seen) {
       seen = new Set();
@@ -327,7 +391,7 @@ export async function runImportBackup(
     seen.add(day);
     chartPointRows.push({
       system_id: systemId,
-      capper_id: newCapperId,
+      capper_id: capperId,
       day_number: Math.round(day),
       cumulative_units: p.cumulative_units,
       notes: p.notes ?? null,
@@ -364,8 +428,8 @@ export async function runImportBackup(
   return {
     ok: true,
     summary: {
-      cappers: capperIdMap.size,
-      days: dayIdMap.size,
+      cappers: capperRows.length,
+      days: dayRows.length,
       bets: betRows.length,
       baselines: baselineRows.length,
       system_baseline: systemBaselineImported,

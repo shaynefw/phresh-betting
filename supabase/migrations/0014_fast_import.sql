@@ -12,6 +12,11 @@
 -- recompute functions ONCE per affected capper plus once for the
 -- system journal. Total work is now O(N).
 --
+-- Original IDs from the backup are mapped to fresh gen_random_uuid()
+-- values so the import can't collide with rows that still live in
+-- other systems (e.g. after a Clerk re-auth where the original
+-- capper UUIDs are still owned by the old user's system).
+--
 -- SECURITY DEFINER so it runs with the function-owner's privileges
 -- (postgres) and can flip session_replication_role. The caller is
 -- still gated by the JS route handler, which verifies the caller owns
@@ -52,6 +57,35 @@ begin
   delete from public.journal_day_entries where system_id = p_system_id;
   delete from public.cappers              where system_id = p_system_id;
 
+  -- ----- ID-remap temp tables --------------------------------------
+  -- The wipe only clears rows in the target system. The backup may
+  -- carry capper/day IDs that still exist in *other* systems (e.g.
+  -- the original export's system, owned by the user's pre-reset
+  -- Clerk identity), so reusing them would trip the cappers_pkey /
+  -- capper_day_entries_pkey constraints. Generate fresh UUIDs and
+  -- translate every foreign key reference through these maps.
+  create temp table _capper_id_map (
+    old_id uuid primary key,
+    new_id uuid not null default gen_random_uuid()
+  ) on commit drop;
+  create temp table _day_id_map (
+    old_id uuid primary key,
+    new_id uuid not null default gen_random_uuid()
+  ) on commit drop;
+
+  if jsonb_typeof(p_payload->'cappers') = 'array' then
+    insert into _capper_id_map (old_id)
+    select distinct (r->>'id')::uuid
+    from jsonb_array_elements(p_payload->'cappers') r
+    where (r->>'id') is not null;
+  end if;
+  if jsonb_typeof(p_payload->'capper_days') = 'array' then
+    insert into _day_id_map (old_id)
+    select distinct (r->>'id')::uuid
+    from jsonb_array_elements(p_payload->'capper_days') r
+    where (r->>'id') is not null;
+  end if;
+
   -- ----- Scaling log -----------------------------------------------
   if jsonb_typeof(p_payload->'scaling') = 'array' then
     insert into public.scaling_log_entries (
@@ -69,7 +103,7 @@ begin
     from jsonb_array_elements(p_payload->'scaling') r;
   end if;
 
-  -- ----- Cappers (preserve IDs) ------------------------------------
+  -- ----- Cappers (remap IDs) ---------------------------------------
   if jsonb_typeof(p_payload->'cappers') = 'array' then
     insert into public.cappers (
       id, system_id, name, base_system_risk_units,
@@ -77,7 +111,7 @@ begin
       current_phase, checklist_status, sort_order, notes
     )
     select
-      (r->>'id')::uuid,
+      m.new_id,
       p_system_id,
       r->>'name',
       coalesce((r->>'base_system_risk_units')::numeric, 0),
@@ -89,11 +123,12 @@ begin
       coalesce(r->>'checklist_status', 'started'),
       coalesce((r->>'sort_order')::int, 0),
       r->>'notes'
-    from jsonb_array_elements(p_payload->'cappers') r;
+    from jsonb_array_elements(p_payload->'cappers') r
+    join _capper_id_map m on m.old_id = (r->>'id')::uuid;
     get diagnostics v_cappers_n = row_count;
   end if;
 
-  -- ----- Capper day entries (preserve IDs) -------------------------
+  -- ----- Capper day entries (remap day + capper IDs) ---------------
   if jsonb_typeof(p_payload->'capper_days') = 'array' then
     insert into public.capper_day_entries (
       id, capper_id, system_id, date, entry_mode,
@@ -101,8 +136,8 @@ begin
       unit_size_used, excluded_from_system, notes
     )
     select
-      (r->>'id')::uuid,
-      (r->>'capper_id')::uuid,
+      dm.new_id,
+      cm.new_id,
       p_system_id,
       (r->>'date')::date,
       coalesce(r->>'entry_mode', 'daily_totals'),
@@ -115,15 +150,12 @@ begin
       coalesce((r->>'excluded_from_system')::boolean, false),
       r->>'notes'
     from jsonb_array_elements(p_payload->'capper_days') r
-    where exists (
-      select 1 from public.cappers c
-      where c.id = (r->>'capper_id')::uuid
-        and c.system_id = p_system_id
-    );
+    join _day_id_map dm on dm.old_id = (r->>'id')::uuid
+    join _capper_id_map cm on cm.old_id = (r->>'capper_id')::uuid;
     get diagnostics v_days_n = row_count;
   end if;
 
-  -- ----- Capper bet entries ----------------------------------------
+  -- ----- Capper bet entries (remap day + capper IDs) ---------------
   if jsonb_typeof(p_payload->'capper_bets') = 'array' then
     insert into public.capper_bet_entries (
       capper_day_entry_id, capper_id, system_id, date,
@@ -131,8 +163,8 @@ begin
       units_risk_multiplier, notes, sport
     )
     select
-      (r->>'capper_day_entry_id')::uuid,
-      (r->>'capper_id')::uuid,
+      dm.new_id,
+      cm.new_id,
       p_system_id,
       (r->>'date')::date,
       coalesce((r->>'wager_amount')::numeric, 0),
@@ -143,15 +175,12 @@ begin
       r->>'notes',
       r->>'sport'
     from jsonb_array_elements(p_payload->'capper_bets') r
-    where exists (
-      select 1 from public.capper_day_entries d
-      where d.id = (r->>'capper_day_entry_id')::uuid
-        and d.system_id = p_system_id
-    );
+    join _day_id_map dm on dm.old_id = (r->>'capper_day_entry_id')::uuid
+    join _capper_id_map cm on cm.old_id = (r->>'capper_id')::uuid;
     get diagnostics v_bets_n = row_count;
   end if;
 
-  -- ----- Capper baselines ------------------------------------------
+  -- ----- Capper baselines (remap capper IDs) -----------------------
   if jsonb_typeof(p_payload->'capper_baselines') = 'array' then
     insert into public.capper_baselines (
       capper_id, system_id,
@@ -165,7 +194,7 @@ begin
       max_win_streak, max_loss_streak, streak_breakdown, notes
     )
     select
-      (r->>'capper_id')::uuid,
+      cm.new_id,
       p_system_id,
       coalesce((r->>'total_betting_days')::int, 0),
       coalesce((r->>'total_bets')::int, 0),
@@ -190,11 +219,7 @@ begin
       coalesce(r->'streak_breakdown', '[]'::jsonb),
       r->>'notes'
     from jsonb_array_elements(p_payload->'capper_baselines') r
-    where exists (
-      select 1 from public.cappers c
-      where c.id = (r->>'capper_id')::uuid
-        and c.system_id = p_system_id
-    );
+    join _capper_id_map cm on cm.old_id = (r->>'capper_id')::uuid;
     get diagnostics v_baselines_n = row_count;
   end if;
 
@@ -235,29 +260,23 @@ begin
     v_system_baseline_imported := true;
   end if;
 
-  -- ----- Chart baseline points -------------------------------------
+  -- ----- Chart baseline points (remap optional capper IDs) ---------
   if jsonb_typeof(p_payload->'chart_baseline_points') = 'array' then
     insert into public.chart_baseline_points (
       system_id, capper_id, day_number, cumulative_units, notes
     )
     select
       p_system_id,
-      case
-        when (r->>'capper_id') is null then null
-        else (r->>'capper_id')::uuid
-      end,
+      cm.new_id, -- null when r->>'capper_id' is null (left join misses)
       coalesce((r->>'day_number')::int, 0),
       coalesce((r->>'cumulative_units')::numeric, 0),
       r->>'notes'
     from jsonb_array_elements(p_payload->'chart_baseline_points') r
+    left join _capper_id_map cm on cm.old_id = nullif(r->>'capper_id','')::uuid
     where coalesce((r->>'day_number')::int, 0) >= 1
       and (
         (r->>'capper_id') is null
-        or exists (
-          select 1 from public.cappers c
-          where c.id = (r->>'capper_id')::uuid
-            and c.system_id = p_system_id
-        )
+        or cm.new_id is not null
       );
     get diagnostics v_chart_n = row_count;
   end if;
@@ -287,11 +306,9 @@ begin
   -- Run the recompute functions ONCE per affected capper plus once
   -- for the journal. CRITICAL: triggers must stay OFF here too —
   -- recompute_capper does UPDATEs on capper_day_entries, which would
-  -- otherwise re-fire cde_after and recompute_capper recursively.
-  -- That recursion is what makes the per-row trigger path so slow:
-  -- a single recompute_capper call takes ~270ms with the trigger on
-  -- vs ~1ms with the trigger off (measured: 41ms for 30 cappers in
-  -- replica mode vs 6987ms in origin mode).
+  -- otherwise re-fire cde_after and recompute_capper recursively
+  -- (measured: 41ms total in replica mode vs 6987ms in origin mode
+  -- for 30 cappers).
   for v_capper in
     select id from public.cappers where system_id = p_system_id
   loop
@@ -299,6 +316,7 @@ begin
   end loop;
 
   perform public.recompute_journal(p_system_id);
+
   -- session_replication_role was set with SET LOCAL, so it resets to
   -- 'origin' automatically when this function returns and the
   -- transaction commits. No explicit reset needed.

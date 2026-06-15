@@ -28,8 +28,8 @@ export default function PmLogo({
     <Image
       src="/pm-logo.png"
       alt={title}
-      width={1149}
-      height={1369}
+      width={1080}
+      height={1287}
       priority={priority}
       className={cn("block w-auto h-auto select-none", className)}
       draggable={false}

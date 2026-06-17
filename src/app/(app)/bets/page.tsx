@@ -8,7 +8,7 @@ import type {
   JournalDayEntry,
 } from "@/lib/types";
 import { fmtMoney, pctClass, todayISO } from "@/lib/utils";
-import { isSport, type Sport } from "@/lib/sports";
+import { isSport, sportLabel, type Sport } from "@/lib/sports";
 import DailySummary from "@/components/DailySummary";
 import SportIcon from "@/components/SportIcon";
 import ExportButton from "@/components/ExportButton";
@@ -217,7 +217,7 @@ export default async function BetsPage({
                       {sportTag ? (
                         <span className="inline-flex items-center gap-1.5 text-ink">
                           <SportIcon sport={sportTag} size={13} />
-                          <span className="text-xs">{sportTag}</span>
+                          <span className="text-xs">{sportLabel(sportTag)}</span>
                         </span>
                       ) : (
                         <span className="text-ink-dim text-xs">—</span>

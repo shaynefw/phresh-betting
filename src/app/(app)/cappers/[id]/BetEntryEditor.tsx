@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addBet, deleteBet, updateBet } from "../../_actions";
 import type { CapperBetEntry, CapperDayEntry } from "@/lib/types";
-import { isSport, type Sport } from "@/lib/sports";
+import { isSport, sportLabel, type Sport } from "@/lib/sports";
 import { fmtMoney, fmtUnits, pctClass } from "@/lib/utils";
 import { Trash2, Plus, Pencil, Check, X, Clock } from "lucide-react";
 import BetNotesAutocomplete from "@/components/BetNotesAutocomplete";
@@ -339,7 +339,7 @@ export default function BetEntryEditor({
                     {sportTag ? (
                       <span className="inline-flex items-center gap-1.5 text-ink">
                         <SportIcon sport={sportTag} size={13} />
-                        <span className="text-xs">{sportTag}</span>
+                        <span className="text-xs">{sportLabel(sportTag)}</span>
                       </span>
                     ) : (
                       <span className="text-ink-dim text-xs">—</span>

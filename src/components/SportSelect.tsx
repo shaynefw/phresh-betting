@@ -9,7 +9,7 @@ import {
 } from "react";
 import { ChevronDown } from "lucide-react";
 import SportIcon from "./SportIcon";
-import { SPORT_ORDER, type Sport } from "@/lib/sports";
+import { SPORT_ORDER, sportLabel, type Sport } from "@/lib/sports";
 
 /**
  * Custom combobox for the bet-level Sport tag.
@@ -144,7 +144,7 @@ export default function SportSelect({
           {value ? (
             <>
               <SportIcon sport={value} size={14} />
-              <span className="truncate">{value}</span>
+              <span className="truncate">{sportLabel(value)}</span>
             </>
           ) : (
             <span className="text-muted truncate">{placeholder}</span>
@@ -200,7 +200,7 @@ export default function SportSelect({
                 `}
               >
                 <SportIcon sport={s} size={14} />
-                <span>{s}</span>
+                <span>{sportLabel(s)}</span>
               </li>
             );
           })}

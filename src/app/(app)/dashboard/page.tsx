@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import {
   activeScalingRow,
+  avgUnitsRiskedFromJournal,
   computeScalingState,
   summarizeJournal,
 } from "@/lib/calc";
@@ -156,6 +157,27 @@ export default async function Dashboard({
     isInPeriod(r.date, period),
   );
   const periodAgg = aggregateForPeriod(periodJournalRows);
+
+  // Avg Units Risked.
+  //   - lifetimeAvgUnitsRisked  → bottom Combined Performance Summary
+  //     (uses every journal day + the system's scaling history).
+  //   - periodAvgUnitsRisked    → tab-specific block at the top of the
+  //     page. For Day-tab this is a single day; for the other tabs it
+  //     reflects the active period window.
+  // Both derive unit_size per date via activeScalingRow, since the
+  // journal table doesn't carry the unit size directly.
+  const lifetimeAvgUnitsRisked = avgUnitsRiskedFromJournal(
+    journalRows,
+    scalingRows,
+  );
+  const periodAvgUnitsRisked = avgUnitsRiskedFromJournal(
+    period.kind === "day"
+      ? dayJournal
+        ? [dayJournal]
+        : []
+      : periodJournalRows,
+    scalingRows,
+  );
 
   // Streak math — bucket the FULL journal history by the timeframe's
   // bucket key (so week/month/year streaks consider all prior history),
@@ -560,6 +582,14 @@ export default async function Dashboard({
                   : undefined
               }
             />
+            <HeroMetric
+              label="Avg Units Risked"
+              value={
+                periodAvgUnitsRisked == null
+                  ? "—"
+                  : fmtUnits(periodAvgUnitsRisked)
+              }
+            />
           </div>
         </section>
       ) : (
@@ -614,6 +644,7 @@ export default async function Dashboard({
           currentStreakValue={journalSummary.streak.value}
           maxWinStreak={journalSummary.maxWinStreak}
           maxLossStreak={journalSummary.maxLossStreak}
+          lifetimeAvgUnitsRisked={lifetimeAvgUnitsRisked}
         />
 
         {/* Day-tab puts the full daily summary in the hero block at
@@ -624,6 +655,7 @@ export default async function Dashboard({
           <DailySummary
             focusDate={period.anchorDate}
             title={summaryTitle(period)}
+            avgUnitsRisked={periodAvgUnitsRisked}
             dayJournal={
               {
                 id: "synthetic",

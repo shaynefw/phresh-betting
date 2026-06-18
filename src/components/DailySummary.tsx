@@ -19,9 +19,20 @@ interface Props {
   dayJournal: JournalDayEntry | null;
   /** Override the section title. Defaults to "Daily Summary — {focusDate}". */
   title?: string;
+  /**
+   * Avg units risked per valid bet across the panel's scope. The page
+   * computes this for the active period and passes it through; null /
+   * undefined renders "—" (per spec: no zero placeholder).
+   */
+  avgUnitsRisked?: number | null;
 }
 
-export default function DailySummary({ focusDate, dayJournal, title }: Props) {
+export default function DailySummary({
+  focusDate,
+  dayJournal,
+  title,
+  avgUnitsRisked,
+}: Props) {
   return (
     <div className="panel p-3 md:p-5">
       <h3 className="kpi-label mb-3">
@@ -61,6 +72,12 @@ export default function DailySummary({ focusDate, dayJournal, title }: Props) {
               : undefined
           }
         />
+        {avgUnitsRisked !== undefined && (
+          <MiniStat
+            label="Avg Units Risked"
+            value={avgUnitsRisked == null ? "—" : fmtUnits(avgUnitsRisked)}
+          />
+        )}
       </div>
     </div>
   );

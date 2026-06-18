@@ -88,6 +88,98 @@ export function activeScalingRow(
   return sorted[0] ?? null;
 }
 
+/* --------------------------------------------------------------- */
+/* Avg Units Risked helpers                                         */
+/* --------------------------------------------------------------- */
+
+/**
+ * Per-bet average units risked across a set of capper days.
+ *
+ * Each day contributes (wager_total / unit_size_used) units of risk
+ * spread across bet_count bets — so the average per bet across many
+ * days is just:
+ *
+ *   numerator   = Σ (wager_total / unit_size_used) for valid days
+ *   denominator = Σ bet_count                       for the same days
+ *
+ * This formulation works for both daily-totals and bet-level modes
+ * because each contributes the same shape (total wager + bet count +
+ * unit size) and we never average days against each other directly.
+ *
+ * Returns null when no day in the set has a valid contribution — the
+ * caller renders a dash in that case (per spec: don't show 0).
+ */
+export function avgUnitsRiskedFromDays(
+  days: Array<{
+    wager_total: number | string;
+    bet_count: number | string;
+    unit_size_used: number | string | null | undefined;
+  }>,
+): number | null {
+  let sumUnits = 0;
+  let sumBets = 0;
+  for (const d of days) {
+    const unitSize = Number(d.unit_size_used);
+    const wager = Number(d.wager_total);
+    const bets = Math.round(Number(d.bet_count));
+    if (!Number.isFinite(unitSize) || unitSize <= 0) continue;
+    if (!Number.isFinite(wager) || wager <= 0) continue;
+    if (!Number.isFinite(bets) || bets <= 0) continue;
+    sumUnits += wager / unitSize;
+    sumBets += bets;
+  }
+  if (sumBets === 0) return null;
+  return sumUnits / sumBets;
+}
+
+/** Single-day variant. Returns null when bet_count or unit_size is missing. */
+export function avgUnitsRiskedForDay(
+  wager_total: number,
+  unit_size_used: number | null | undefined,
+  bet_count: number,
+): number | null {
+  if (!unit_size_used || unit_size_used <= 0) return null;
+  if (!bet_count || bet_count <= 0) return null;
+  if (!wager_total || wager_total <= 0) return null;
+  return wager_total / unit_size_used / bet_count;
+}
+
+/**
+ * System-level (journal) variant. journal_day_entries don't carry
+ * unit_size_used directly — the unit size for a given date comes from
+ * the system's scaling log via activeScalingRow().
+ *
+ *   numerator   = Σ (total_wager / unit_size_for_date) for valid days
+ *   denominator = Σ total_bets                          for the same days
+ *
+ * Returns null when no day contributes (same rule as the capper-level
+ * helper).
+ */
+export function avgUnitsRiskedFromJournal(
+  journalDays: Array<{
+    date: string;
+    total_wager: number | string;
+    total_bets: number | string;
+  }>,
+  scaling: ScalingLogEntry[],
+): number | null {
+  let sumUnits = 0;
+  let sumBets = 0;
+  for (const d of journalDays) {
+    const row = activeScalingRow(scaling, d.date);
+    const unitSize = row ? Number(row.unit_size_dollars) : 0;
+    const wager = Number(d.total_wager);
+    const bets = Math.round(Number(d.total_bets));
+    if (!Number.isFinite(unitSize) || unitSize <= 0) continue;
+    if (!Number.isFinite(wager) || wager <= 0) continue;
+    if (!Number.isFinite(bets) || bets <= 0) continue;
+    sumUnits += wager / unitSize;
+    sumBets += bets;
+  }
+  if (sumBets === 0) return null;
+  return sumUnits / sumBets;
+}
+
 /**
  * Bankroll convention: each unit represents 1/50th of the bankroll, so
  * the bankroll for a given unit size is always unit × 50. Exposed as a

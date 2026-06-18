@@ -30,6 +30,12 @@ interface Props {
    * only callers (e.g. the dashboard system-wide summary).
    */
   lifetimeAvgOdds?: number | null;
+  /**
+   * Lifetime average units risked per valid bet. Optional — pass null
+   * (or omit) when there are no valid contributions. Renders as fmtUnits
+   * or "—" right under Avg Odds (Lifetime).
+   */
+  lifetimeAvgUnitsRisked?: number | null;
   /** Optional badge (e.g. "+ baseline") shown next to the title */
   badge?: React.ReactNode;
 }
@@ -91,6 +97,16 @@ export default function PerformanceSummary(p: Props) {
           <Row
             label="Avg Odds (Lifetime)"
             value={fmtAmericanOdds(p.lifetimeAvgOdds)}
+          />
+        )}
+        {p.lifetimeAvgUnitsRisked !== undefined && (
+          <Row
+            label="Avg Units Risked (Lifetime)"
+            value={
+              p.lifetimeAvgUnitsRisked == null
+                ? "—"
+                : fmtUnits(p.lifetimeAvgUnitsRisked)
+            }
           />
         )}
         <div className="text-ink-dim">Current Streak</div>

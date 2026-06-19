@@ -14,8 +14,8 @@ import type {
 import ChartBaselineImporter from "@/components/ChartBaselineImporter";
 import {
   activeScalingRow,
-  avgUnitsRiskedForDay,
-  avgUnitsRiskedFromDays,
+  avgDailyRiskForDay,
+  avgDailyRiskFromDays,
 } from "@/lib/calc";
 import { combineWithDays } from "@/lib/baseline";
 import {
@@ -287,14 +287,14 @@ export default async function CapperDetail({
   for (const d of dayRows) {
     dailyAvgDailyRiskByDay.set(
       d.id,
-      avgUnitsRiskedForDay(
+      avgDailyRiskForDay(
         Number(d.wager_total),
         d.unit_size_used == null ? null : Number(d.unit_size_used),
         Number(d.bet_count),
       ),
     );
   }
-  const lifetimeAvgDailyRisk = avgUnitsRiskedFromDays(dayRows);
+  const lifetimeAvgDailyRisk = avgDailyRiskFromDays(dayRows);
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="capper-root">

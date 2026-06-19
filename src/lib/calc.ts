@@ -89,7 +89,7 @@ export function activeScalingRow(
 }
 
 /* --------------------------------------------------------------- */
-/* Avg Units Risked helpers                                         */
+/* Avg Daily Risk helpers                                           */
 /* --------------------------------------------------------------- */
 
 /**
@@ -109,7 +109,7 @@ export function activeScalingRow(
  * Returns null when no day in the set has a valid contribution — the
  * caller renders a dash in that case (per spec: don't show 0).
  */
-export function avgUnitsRiskedFromDays(
+export function avgDailyRiskFromDays(
   days: Array<{
     wager_total: number | string;
     bet_count: number | string;
@@ -133,7 +133,7 @@ export function avgUnitsRiskedFromDays(
 }
 
 /** Single-day variant. Returns null when bet_count or unit_size is missing. */
-export function avgUnitsRiskedForDay(
+export function avgDailyRiskForDay(
   wager_total: number,
   unit_size_used: number | null | undefined,
   bet_count: number,
@@ -155,7 +155,7 @@ export function avgUnitsRiskedForDay(
  * Returns null when no day contributes (same rule as the capper-level
  * helper).
  */
-export function avgUnitsRiskedFromJournal(
+export function avgDailyRiskFromJournal(
   journalDays: Array<{
     date: string;
     total_wager: number | string;

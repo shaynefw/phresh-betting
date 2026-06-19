@@ -10,7 +10,7 @@ import type {
   ChartBaselinePoint,
   ScalingLogEntry,
 } from "@/lib/types";
-import { activeScalingRow } from "@/lib/calc";
+import { activeScalingRow, avgDailyRiskFromDays } from "@/lib/calc";
 import {
   fmtAmericanOdds,
   fmtMoney,
@@ -210,6 +210,10 @@ export default async function CappersPage() {
     // don't store individual odds). Null when this capper has no tracked
     // bets carrying odds yet.
     const lifetimeAvgOdds = lifetimeAvgOddsByCapper.get(capperId) ?? null;
+    // Lifetime Avg Daily Risk — average units risked per valid bet across
+    // every tracked day for this capper. Same calc the capper detail
+    // page uses, so the lifetime values agree.
+    const lifetimeAvgDailyRisk = avgDailyRiskFromDays(days);
     /**
      * Cumulative Units (Last 20) — rolling 20-betting-day window.
      *
@@ -282,6 +286,7 @@ export default async function CappersPage() {
       cumUnits,
       runRoi,
       lifetimeAvgOdds,
+      lifetimeAvgDailyRisk,
       last20CumUnits,
     };
   }
@@ -387,6 +392,14 @@ export default async function CappersPage() {
                   <div className="kpi-label text-[9px]">Avg Odds</div>
                   <div>{fmtAmericanOdds(stats.lifetimeAvgOdds)}</div>
                 </div>
+                <div>
+                  <div className="kpi-label text-[9px]">Avg Daily Risk</div>
+                  <div>
+                    {stats.lifetimeAvgDailyRisk == null
+                      ? "—"
+                      : fmtUnits(stats.lifetimeAvgDailyRisk)}
+                  </div>
+                </div>
               </div>
               <div className="flex gap-2">
                 <form action={updatePhase} className="flex-1">
@@ -433,6 +446,7 @@ export default async function CappersPage() {
                 <th className="text-right">ROI</th>
                 <th className="text-right">Day Win Rate</th>
                 <th className="text-right">Avg Odds</th>
+                <th className="text-right">Avg Daily Risk</th>
                 <th></th>
               </tr>
             </thead>
@@ -504,6 +518,11 @@ export default async function CappersPage() {
                     </td>
                     <td className="text-right font-mono">
                       {fmtAmericanOdds(stats.lifetimeAvgOdds)}
+                    </td>
+                    <td className="text-right font-mono">
+                      {stats.lifetimeAvgDailyRisk == null
+                        ? "—"
+                        : fmtUnits(stats.lifetimeAvgDailyRisk)}
                     </td>
                     <td className="text-right">
                       <form action={archiveCapper} className="inline-block">

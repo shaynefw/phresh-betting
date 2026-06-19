@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import {
   activeScalingRow,
-  avgUnitsRiskedFromJournal,
+  avgDailyRiskFromJournal,
   computeScalingState,
   summarizeJournal,
 } from "@/lib/calc";
@@ -162,7 +162,7 @@ export default async function Dashboard({
   // Performance Summary at the bottom of the dashboard, beside Avg
   // Odds. Per product spec, this metric is NOT shown in any of the
   // per-period / journal panels above.
-  const lifetimeAvgDailyRisk = avgUnitsRiskedFromJournal(
+  const lifetimeAvgDailyRisk = avgDailyRiskFromJournal(
     journalRows,
     scalingRows,
   );

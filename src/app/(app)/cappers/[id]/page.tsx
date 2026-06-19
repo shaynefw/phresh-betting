@@ -278,14 +278,14 @@ export default async function CapperDetail({
   }
   const lifetimeAvgOdds = averageAmericanOdds(betRows.map((b) => b.odds));
 
-  // Avg Units Risked — per-day (table column) + lifetime (Combined
-  // Performance Summary row). The capper-day-level helper handles
-  // both daily-totals and bet-level modes via the (wager / unit_size
-  // / bet_count) shape; lifetime is just the same calc rolled across
-  // every day for this capper.
-  const dailyAvgUnitsRiskedByDay = new Map<string, number | null>();
+  // Avg Daily Risk — per-day (table column) + lifetime (Combined
+  // Performance Summary row, beside Avg Odds). The capper-day-level
+  // helper handles both daily-totals and bet-level modes via the
+  // (wager / unit_size / bet_count) shape; lifetime is the same calc
+  // rolled across every day for this capper.
+  const dailyAvgDailyRiskByDay = new Map<string, number | null>();
   for (const d of dayRows) {
-    dailyAvgUnitsRiskedByDay.set(
+    dailyAvgDailyRiskByDay.set(
       d.id,
       avgUnitsRiskedForDay(
         Number(d.wager_total),
@@ -294,7 +294,7 @@ export default async function CapperDetail({
       ),
     );
   }
-  const lifetimeAvgUnitsRisked = avgUnitsRiskedFromDays(dayRows);
+  const lifetimeAvgDailyRisk = avgUnitsRiskedFromDays(dayRows);
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="capper-root">
@@ -391,7 +391,7 @@ export default async function CapperDetail({
           maxWinStreak={combined.maxWinStreak}
           maxLossStreak={combined.maxLossStreak}
           lifetimeAvgOdds={lifetimeAvgOdds}
-          lifetimeAvgUnitsRisked={lifetimeAvgUnitsRisked}
+          lifetimeAvgDailyRisk={lifetimeAvgDailyRisk}
         />
 
         {baseline ? (
@@ -456,7 +456,7 @@ export default async function CapperDetail({
                 <th className="text-right">Wager</th>
                 <th className="text-right">$ PnL</th>
                 <th className="text-right">Units</th>
-                <th className="text-right">Avg Units Risked</th>
+                <th className="text-right">Avg Daily Risk</th>
                 <th className="text-right">ROI</th>
                 <th className="text-right">Win Rate</th>
                 <th className="text-right">Cum Units</th>
@@ -491,7 +491,7 @@ export default async function CapperDetail({
                   </td>
                   <td className="text-right">
                     {(() => {
-                      const v = dailyAvgUnitsRiskedByDay.get(d.id);
+                      const v = dailyAvgDailyRiskByDay.get(d.id);
                       return v == null ? "—" : fmtUnits(v);
                     })()}
                   </td>

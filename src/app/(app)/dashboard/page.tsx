@@ -158,24 +158,12 @@ export default async function Dashboard({
   );
   const periodAgg = aggregateForPeriod(periodJournalRows);
 
-  // Avg Units Risked.
-  //   - lifetimeAvgUnitsRisked  → bottom Combined Performance Summary
-  //     (uses every journal day + the system's scaling history).
-  //   - periodAvgUnitsRisked    → tab-specific block at the top of the
-  //     page. For Day-tab this is a single day; for the other tabs it
-  //     reflects the active period window.
-  // Both derive unit_size per date via activeScalingRow, since the
-  // journal table doesn't carry the unit size directly.
-  const lifetimeAvgUnitsRisked = avgUnitsRiskedFromJournal(
+  // Avg Daily Risk — lifetime aggregate only. Surfaces in the Combined
+  // Performance Summary at the bottom of the dashboard, beside Avg
+  // Odds. Per product spec, this metric is NOT shown in any of the
+  // per-period / journal panels above.
+  const lifetimeAvgDailyRisk = avgUnitsRiskedFromJournal(
     journalRows,
-    scalingRows,
-  );
-  const periodAvgUnitsRisked = avgUnitsRiskedFromJournal(
-    period.kind === "day"
-      ? dayJournal
-        ? [dayJournal]
-        : []
-      : periodJournalRows,
     scalingRows,
   );
 
@@ -582,14 +570,6 @@ export default async function Dashboard({
                   : undefined
               }
             />
-            <HeroMetric
-              label="Avg Units Risked"
-              value={
-                periodAvgUnitsRisked == null
-                  ? "—"
-                  : fmtUnits(periodAvgUnitsRisked)
-              }
-            />
           </div>
         </section>
       ) : (
@@ -644,7 +624,7 @@ export default async function Dashboard({
           currentStreakValue={journalSummary.streak.value}
           maxWinStreak={journalSummary.maxWinStreak}
           maxLossStreak={journalSummary.maxLossStreak}
-          lifetimeAvgUnitsRisked={lifetimeAvgUnitsRisked}
+          lifetimeAvgDailyRisk={lifetimeAvgDailyRisk}
         />
 
         {/* Day-tab puts the full daily summary in the hero block at
@@ -655,7 +635,6 @@ export default async function Dashboard({
           <DailySummary
             focusDate={period.anchorDate}
             title={summaryTitle(period)}
-            avgUnitsRisked={periodAvgUnitsRisked}
             dayJournal={
               {
                 id: "synthetic",

@@ -31,11 +31,12 @@ interface Props {
    */
   lifetimeAvgOdds?: number | null;
   /**
-   * Lifetime average units risked per valid bet. Optional — pass null
-   * (or omit) when there are no valid contributions. Renders as fmtUnits
-   * or "—" right under Avg Odds (Lifetime).
+   * Lifetime average units risked per valid bet — surfaced as "Avg
+   * Daily Risk (Lifetime)" alongside Avg Odds (Lifetime) on the same
+   * visual row. Optional — pass null (or omit) when there's no valid
+   * contribution; the cell renders "—".
    */
-  lifetimeAvgUnitsRisked?: number | null;
+  lifetimeAvgDailyRisk?: number | null;
   /** Optional badge (e.g. "+ baseline") shown next to the title */
   badge?: React.ReactNode;
 }
@@ -93,21 +94,33 @@ export default function PerformanceSummary(p: Props) {
         />
         <Row label="Max Win Streak" tone={1} value={p.maxWinStreak} />
         <Row label="Max Loss Streak" tone={-1} value={p.maxLossStreak} />
-        {p.lifetimeAvgOdds !== undefined && (
-          <Row
-            label="Avg Odds (Lifetime)"
-            value={fmtAmericanOdds(p.lifetimeAvgOdds)}
-          />
-        )}
-        {p.lifetimeAvgUnitsRisked !== undefined && (
-          <Row
-            label="Avg Units Risked (Lifetime)"
-            value={
-              p.lifetimeAvgUnitsRisked == null
-                ? "—"
-                : fmtUnits(p.lifetimeAvgUnitsRisked)
-            }
-          />
+        {/* Avg Odds + Avg Daily Risk share a row. The outer grid is
+            grid-cols-2 (one metric per visual line), so we drop in a
+            4-cell sub-grid that spans the full row to put Avg Daily
+            Risk immediately to the right of Avg Odds. */}
+        {(p.lifetimeAvgOdds !== undefined ||
+          p.lifetimeAvgDailyRisk !== undefined) && (
+          <div className="col-span-2 grid grid-cols-[1fr_auto_1fr_auto] gap-x-3 items-center">
+            {p.lifetimeAvgOdds !== undefined && (
+              <>
+                <div className="text-ink-dim">Avg Odds (Lifetime)</div>
+                <div className="text-right font-mono">
+                  {fmtAmericanOdds(p.lifetimeAvgOdds)}
+                </div>
+              </>
+            )}
+            {p.lifetimeAvgOdds === undefined && <><span /><span /></>}
+            {p.lifetimeAvgDailyRisk !== undefined && (
+              <>
+                <div className="text-ink-dim">Avg Daily Risk (Lifetime)</div>
+                <div className="text-right font-mono">
+                  {p.lifetimeAvgDailyRisk == null
+                    ? "—"
+                    : fmtUnits(p.lifetimeAvgDailyRisk)}
+                </div>
+              </>
+            )}
+          </div>
         )}
         <div className="text-ink-dim">Current Streak</div>
         <div

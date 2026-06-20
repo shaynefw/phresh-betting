@@ -14,8 +14,9 @@ import type {
 import ChartBaselineImporter from "@/components/ChartBaselineImporter";
 import {
   activeScalingRow,
-  avgDailyRiskForDay,
+  avgBetRiskForDay,
   avgDailyRiskFromDays,
+  totalUnitRiskForDay,
 } from "@/lib/calc";
 import { combineWithDays } from "@/lib/baseline";
 import {
@@ -278,20 +279,18 @@ export default async function CapperDetail({
   }
   const lifetimeAvgOdds = averageAmericanOdds(betRows.map((b) => b.odds));
 
-  // Avg Daily Risk — per-day (table column) + lifetime (Combined
-  // Performance Summary row, beside Avg Odds). The capper-day-level
-  // helper handles both daily-totals and bet-level modes via the
-  // (wager / unit_size / bet_count) shape; lifetime is the same calc
-  // rolled across every day for this capper.
-  const dailyAvgDailyRiskByDay = new Map<string, number | null>();
+  // Per-day Total Unit Risk (= wager/unit_size) + Avg Bet Risk (= TUR/
+  // bet_count) for the daily table columns. The lifetime Avg Daily
+  // Risk in the Combined Performance Summary is the mean of the daily
+  // Avg Bet Risk values (see avgDailyRiskFromDays).
+  const totalUnitRiskByDay = new Map<string, number | null>();
+  const avgBetRiskByDay = new Map<string, number | null>();
   for (const d of dayRows) {
-    dailyAvgDailyRiskByDay.set(
+    const unitSize = d.unit_size_used == null ? null : Number(d.unit_size_used);
+    totalUnitRiskByDay.set(d.id, totalUnitRiskForDay(Number(d.wager_total), unitSize));
+    avgBetRiskByDay.set(
       d.id,
-      avgDailyRiskForDay(
-        Number(d.wager_total),
-        d.unit_size_used == null ? null : Number(d.unit_size_used),
-        Number(d.bet_count),
-      ),
+      avgBetRiskForDay(Number(d.wager_total), unitSize, Number(d.bet_count)),
     );
   }
   const lifetimeAvgDailyRisk = avgDailyRiskFromDays(dayRows);
@@ -454,9 +453,10 @@ export default async function CapperDetail({
                 <th className="text-right">Bets</th>
                 <th className="text-right">Avg Odds</th>
                 <th className="text-right">Wager</th>
+                <th className="text-right">Total Unit Risk</th>
                 <th className="text-right">$ PnL</th>
                 <th className="text-right">Units</th>
-                <th className="text-right">Avg Daily Risk</th>
+                <th className="text-right">Avg Bet Risk</th>
                 <th className="text-right">ROI</th>
                 <th className="text-right">Win Rate</th>
                 <th className="text-right">Cum Units</th>
@@ -467,7 +467,7 @@ export default async function CapperDetail({
             <tbody>
               {dayRows.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="text-center text-ink-dim py-6">
+                  <td colSpan={14} className="text-center text-ink-dim py-6">
                     No days yet. Use “Add Date” on the left.
                   </td>
                 </tr>
@@ -483,6 +483,12 @@ export default async function CapperDetail({
                     {fmtAmericanOdds(dailyAvgOddsByDay.get(d.id) ?? null)}
                   </td>
                   <td className="text-right">{fmtMoney(d.wager_total)}</td>
+                  <td className="text-right">
+                    {(() => {
+                      const v = totalUnitRiskByDay.get(d.id);
+                      return v == null ? "—" : fmtUnits(v);
+                    })()}
+                  </td>
                   <td className={`text-right ${pctClass(d.daily_amount_pnl)}`}>
                     {fmtMoney(d.daily_amount_pnl, { sign: true })}
                   </td>
@@ -491,7 +497,7 @@ export default async function CapperDetail({
                   </td>
                   <td className="text-right">
                     {(() => {
-                      const v = dailyAvgDailyRiskByDay.get(d.id);
+                      const v = avgBetRiskByDay.get(d.id);
                       return v == null ? "—" : fmtUnits(v);
                     })()}
                   </td>

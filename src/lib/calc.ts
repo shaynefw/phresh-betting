@@ -89,25 +89,54 @@ export function activeScalingRow(
 }
 
 /* --------------------------------------------------------------- */
-/* Avg Daily Risk helpers                                           */
+/* Total Unit Risk / Avg Bet Risk / Avg Daily Risk helpers          */
 /* --------------------------------------------------------------- */
 
 /**
- * Per-bet average units risked across a set of capper days.
+ * Total Unit Risk for a single day = wager_total / unit_size_used.
+ * Returns null when unit_size is missing/zero (we can't compute units
+ * without knowing the day's unit size).
+ */
+export function totalUnitRiskForDay(
+  wager_total: number | string,
+  unit_size_used: number | string | null | undefined,
+): number | null {
+  const unitSize = Number(unit_size_used);
+  const wager = Number(wager_total);
+  if (!Number.isFinite(unitSize) || unitSize <= 0) return null;
+  if (!Number.isFinite(wager) || wager <= 0) return null;
+  return wager / unitSize;
+}
+
+/**
+ * Avg Bet Risk for a single day = Total Unit Risk / bet_count.
+ * Returns null when bet_count is zero or Total Unit Risk can't be
+ * computed.
+ */
+export function avgBetRiskForDay(
+  wager_total: number | string,
+  unit_size_used: number | string | null | undefined,
+  bet_count: number | string,
+): number | null {
+  const tur = totalUnitRiskForDay(wager_total, unit_size_used);
+  if (tur == null) return null;
+  const bets = Math.round(Number(bet_count));
+  if (!Number.isFinite(bets) || bets <= 0) return null;
+  return tur / bets;
+}
+
+/**
+ * Avg Daily Risk (Lifetime) — mean of each day's Avg Bet Risk across
+ * valid days.
  *
- * Each day contributes (wager_total / unit_size_used) units of risk
- * spread across bet_count bets — so the average per bet across many
- * days is just:
+ *   value = Σ (TUR_day / bets_day) / num_valid_days
  *
- *   numerator   = Σ (wager_total / unit_size_used) for valid days
- *   denominator = Σ bet_count                       for the same days
+ * Per product spec, the lifetime metric is "derived from the daily
+ * capper log data rather than direct lifetime bet-level averaging" —
+ * so we explicitly average per-day values (unweighted) instead of
+ * summing all bets across all days and dividing once.
  *
- * This formulation works for both daily-totals and bet-level modes
- * because each contributes the same shape (total wager + bet count +
- * unit size) and we never average days against each other directly.
- *
- * Returns null when no day in the set has a valid contribution — the
- * caller renders a dash in that case (per spec: don't show 0).
+ * Returns null when no day in the set has a valid contribution.
  */
 export function avgDailyRiskFromDays(
   days: Array<{
@@ -116,44 +145,27 @@ export function avgDailyRiskFromDays(
     unit_size_used: number | string | null | undefined;
   }>,
 ): number | null {
-  let sumUnits = 0;
-  let sumBets = 0;
+  let sumDailyAvg = 0;
+  let validDays = 0;
   for (const d of days) {
-    const unitSize = Number(d.unit_size_used);
-    const wager = Number(d.wager_total);
-    const bets = Math.round(Number(d.bet_count));
-    if (!Number.isFinite(unitSize) || unitSize <= 0) continue;
-    if (!Number.isFinite(wager) || wager <= 0) continue;
-    if (!Number.isFinite(bets) || bets <= 0) continue;
-    sumUnits += wager / unitSize;
-    sumBets += bets;
+    const dayAvg = avgBetRiskForDay(d.wager_total, d.unit_size_used, d.bet_count);
+    if (dayAvg == null) continue;
+    sumDailyAvg += dayAvg;
+    validDays += 1;
   }
-  if (sumBets === 0) return null;
-  return sumUnits / sumBets;
-}
-
-/** Single-day variant. Returns null when bet_count or unit_size is missing. */
-export function avgDailyRiskForDay(
-  wager_total: number,
-  unit_size_used: number | null | undefined,
-  bet_count: number,
-): number | null {
-  if (!unit_size_used || unit_size_used <= 0) return null;
-  if (!bet_count || bet_count <= 0) return null;
-  if (!wager_total || wager_total <= 0) return null;
-  return wager_total / unit_size_used / bet_count;
+  if (validDays === 0) return null;
+  return sumDailyAvg / validDays;
 }
 
 /**
  * System-level (journal) variant. journal_day_entries don't carry
  * unit_size_used directly — the unit size for a given date comes from
- * the system's scaling log via activeScalingRow().
+ * the system's scaling log via activeScalingRow(). Same mean-of-daily
+ * shape as the capper-level helper.
  *
- *   numerator   = Σ (total_wager / unit_size_for_date) for valid days
- *   denominator = Σ total_bets                          for the same days
+ *   value = Σ (TUR_day / bets_day) / num_valid_days
  *
- * Returns null when no day contributes (same rule as the capper-level
- * helper).
+ * Returns null when no day contributes.
  */
 export function avgDailyRiskFromJournal(
   journalDays: Array<{
@@ -163,22 +175,20 @@ export function avgDailyRiskFromJournal(
   }>,
   scaling: ScalingLogEntry[],
 ): number | null {
-  let sumUnits = 0;
-  let sumBets = 0;
+  let sumDailyAvg = 0;
+  let validDays = 0;
   for (const d of journalDays) {
     const row = activeScalingRow(scaling, d.date);
     const unitSize = row ? Number(row.unit_size_dollars) : 0;
-    const wager = Number(d.total_wager);
-    const bets = Math.round(Number(d.total_bets));
-    if (!Number.isFinite(unitSize) || unitSize <= 0) continue;
-    if (!Number.isFinite(wager) || wager <= 0) continue;
-    if (!Number.isFinite(bets) || bets <= 0) continue;
-    sumUnits += wager / unitSize;
-    sumBets += bets;
+    const dayAvg = avgBetRiskForDay(d.total_wager, unitSize, d.total_bets);
+    if (dayAvg == null) continue;
+    sumDailyAvg += dayAvg;
+    validDays += 1;
   }
-  if (sumBets === 0) return null;
-  return sumUnits / sumBets;
+  if (validDays === 0) return null;
+  return sumDailyAvg / validDays;
 }
+
 
 /**
  * Bankroll convention: each unit represents 1/50th of the bankroll, so

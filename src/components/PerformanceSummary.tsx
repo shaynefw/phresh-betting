@@ -31,12 +31,16 @@ interface Props {
    */
   lifetimeAvgOdds?: number | null;
   /**
-   * Lifetime average units risked per valid bet — surfaced as "Avg
-   * Daily Risk (Lifetime)" alongside Avg Odds (Lifetime) on the same
-   * visual row. Optional — pass null (or omit) when there's no valid
-   * contribution; the cell renders "—".
+   * Lifetime Avg Daily Risk — mean of each day's Total Unit Risk
+   * (computed via avgDailyRiskFromDays / avgDailyRiskFromJournal).
    */
   lifetimeAvgDailyRisk?: number | null;
+  /**
+   * Lifetime Avg Bet Risk — mean of each day's Avg Bet Risk (computed
+   * via avgBetRiskFromDays / avgBetRiskFromJournal). Rendered as its
+   * own Row directly under Avg Daily Risk, never mixed with it.
+   */
+  lifetimeAvgBetRisk?: number | null;
   /** Optional badge (e.g. "+ baseline") shown next to the title */
   badge?: React.ReactNode;
 }
@@ -94,51 +98,35 @@ export default function PerformanceSummary(p: Props) {
         />
         <Row label="Max Win Streak" tone={1} value={p.maxWinStreak} />
         <Row label="Max Loss Streak" tone={-1} value={p.maxLossStreak} />
-        {/* Avg Odds + Avg Daily Risk share a visual row, but each half
-            renders as a self-contained label/value pair (flex justify-
-            between) so the two metrics read as distinct items —
-            matching the typography + alignment of every other Row in
-            this panel. Generous gap-x keeps them from crowding the
-            divider; each half collapses to an empty slot if its prop
-            isn't passed. */}
-        {(p.lifetimeAvgOdds !== undefined ||
-          p.lifetimeAvgDailyRisk !== undefined) && (
-          <div className="col-span-2 grid grid-cols-2 gap-x-8 items-baseline">
-            <div className="flex justify-between items-baseline">
-              {p.lifetimeAvgOdds !== undefined ? (
-                <>
-                  <span className="text-ink-dim">Avg Odds (Lifetime)</span>
-                  <span className="font-mono">
-                    {fmtAmericanOdds(p.lifetimeAvgOdds)}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span />
-                  <span />
-                </>
-              )}
-            </div>
-            <div className="flex justify-between items-baseline">
-              {p.lifetimeAvgDailyRisk !== undefined ? (
-                <>
-                  <span className="text-ink-dim">
-                    Avg Daily Risk (Lifetime)
-                  </span>
-                  <span className="font-mono">
-                    {p.lifetimeAvgDailyRisk == null
-                      ? "—"
-                      : fmtUnits(p.lifetimeAvgDailyRisk)}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span />
-                  <span />
-                </>
-              )}
-            </div>
-          </div>
+        {/* Lifetime metrics — each rendered as a standard Row so they
+            align cleanly with every other label/value pair in the
+            panel. Order: Avg Odds → Avg Daily Risk → Avg Bet Risk,
+            grouped so the two risk metrics sit next to each other. */}
+        {p.lifetimeAvgOdds !== undefined && (
+          <Row
+            label="Avg Odds (Lifetime)"
+            value={fmtAmericanOdds(p.lifetimeAvgOdds)}
+          />
+        )}
+        {p.lifetimeAvgDailyRisk !== undefined && (
+          <Row
+            label="Avg Daily Risk (Lifetime)"
+            value={
+              p.lifetimeAvgDailyRisk == null
+                ? "—"
+                : fmtUnits(p.lifetimeAvgDailyRisk)
+            }
+          />
+        )}
+        {p.lifetimeAvgBetRisk !== undefined && (
+          <Row
+            label="Avg Bet Risk (Lifetime)"
+            value={
+              p.lifetimeAvgBetRisk == null
+                ? "—"
+                : fmtUnits(p.lifetimeAvgBetRisk)
+            }
+          />
         )}
         <div className="text-ink-dim">Current Streak</div>
         <div

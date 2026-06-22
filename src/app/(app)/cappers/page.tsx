@@ -10,7 +10,11 @@ import type {
   ChartBaselinePoint,
   ScalingLogEntry,
 } from "@/lib/types";
-import { activeScalingRow, avgDailyRiskFromDays } from "@/lib/calc";
+import {
+  activeScalingRow,
+  avgBetRiskFromDays,
+  avgDailyRiskFromDays,
+} from "@/lib/calc";
 import {
   fmtAmericanOdds,
   fmtMoney,
@@ -210,10 +214,14 @@ export default async function CappersPage() {
     // don't store individual odds). Null when this capper has no tracked
     // bets carrying odds yet.
     const lifetimeAvgOdds = lifetimeAvgOddsByCapper.get(capperId) ?? null;
-    // Lifetime Avg Daily Risk — average units risked per valid bet across
-    // every tracked day for this capper. Same calc the capper detail
-    // page uses, so the lifetime values agree.
+    // Lifetime risk metrics — two distinct sources kept strictly
+    // separate per product spec:
+    //   - Avg Daily Risk = mean of each day's Total Unit Risk
+    //   - Avg Bet Risk   = mean of each day's Avg Bet Risk
+    // Both call into shared helpers so the same numbers appear on
+    // capper detail / cappers list / dashboard.
     const lifetimeAvgDailyRisk = avgDailyRiskFromDays(days);
+    const lifetimeAvgBetRisk = avgBetRiskFromDays(days);
     /**
      * Cumulative Units (Last 20) — rolling 20-betting-day window.
      *
@@ -287,6 +295,7 @@ export default async function CappersPage() {
       runRoi,
       lifetimeAvgOdds,
       lifetimeAvgDailyRisk,
+      lifetimeAvgBetRisk,
       last20CumUnits,
     };
   }
@@ -400,6 +409,14 @@ export default async function CappersPage() {
                       : fmtUnits(stats.lifetimeAvgDailyRisk)}
                   </div>
                 </div>
+                <div>
+                  <div className="kpi-label text-[9px]">Avg Bet Risk</div>
+                  <div>
+                    {stats.lifetimeAvgBetRisk == null
+                      ? "—"
+                      : fmtUnits(stats.lifetimeAvgBetRisk)}
+                  </div>
+                </div>
               </div>
               <div className="flex gap-2">
                 <form action={updatePhase} className="flex-1">
@@ -447,6 +464,7 @@ export default async function CappersPage() {
                 <th className="text-right">Day Win Rate</th>
                 <th className="text-right">Avg Odds</th>
                 <th className="text-right">Avg Daily Risk</th>
+                <th className="text-right">Avg Bet Risk</th>
                 <th></th>
               </tr>
             </thead>
@@ -523,6 +541,11 @@ export default async function CappersPage() {
                       {stats.lifetimeAvgDailyRisk == null
                         ? "—"
                         : fmtUnits(stats.lifetimeAvgDailyRisk)}
+                    </td>
+                    <td className="text-right font-mono">
+                      {stats.lifetimeAvgBetRisk == null
+                        ? "—"
+                        : fmtUnits(stats.lifetimeAvgBetRisk)}
                     </td>
                     <td className="text-right">
                       <form action={archiveCapper} className="inline-block">

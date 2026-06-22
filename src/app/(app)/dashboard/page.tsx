@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import {
   activeScalingRow,
+  avgBetRiskFromJournal,
   avgDailyRiskFromJournal,
   computeScalingState,
   summarizeJournal,
@@ -158,14 +159,17 @@ export default async function Dashboard({
   );
   const periodAgg = aggregateForPeriod(periodJournalRows);
 
-  // Avg Daily Risk — lifetime aggregate only. Surfaces in the Combined
-  // Performance Summary at the bottom of the dashboard, beside Avg
-  // Odds. Per product spec, this metric is NOT shown in any of the
-  // per-period / journal panels above.
+  // Lifetime risk metrics — surfaced in the Combined Performance
+  // Summary at the bottom of the dashboard. Two distinct sources kept
+  // strictly separate per product spec:
+  //   - Avg Daily Risk = mean of each day's Total Unit Risk
+  //   - Avg Bet Risk   = mean of each day's Avg Bet Risk
+  // Neither appears in the per-period / journal panels above.
   const lifetimeAvgDailyRisk = avgDailyRiskFromJournal(
     journalRows,
     scalingRows,
   );
+  const lifetimeAvgBetRisk = avgBetRiskFromJournal(journalRows, scalingRows);
 
   // Streak math — bucket the FULL journal history by the timeframe's
   // bucket key (so week/month/year streaks consider all prior history),
@@ -625,6 +629,7 @@ export default async function Dashboard({
           maxWinStreak={journalSummary.maxWinStreak}
           maxLossStreak={journalSummary.maxLossStreak}
           lifetimeAvgDailyRisk={lifetimeAvgDailyRisk}
+          lifetimeAvgBetRisk={lifetimeAvgBetRisk}
         />
 
         {/* Day-tab puts the full daily summary in the hero block at

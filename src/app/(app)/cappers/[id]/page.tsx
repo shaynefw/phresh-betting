@@ -15,6 +15,7 @@ import ChartBaselineImporter from "@/components/ChartBaselineImporter";
 import {
   activeScalingRow,
   avgBetRiskForDay,
+  avgBetRiskFromDays,
   avgDailyRiskFromDays,
   totalUnitRiskForDay,
 } from "@/lib/calc";
@@ -294,6 +295,7 @@ export default async function CapperDetail({
     );
   }
   const lifetimeAvgDailyRisk = avgDailyRiskFromDays(dayRows);
+  const lifetimeAvgBetRisk = avgBetRiskFromDays(dayRows);
 
   return (
     <div className="p-3 md:p-6 space-y-4 md:space-y-6" id="capper-root">
@@ -391,6 +393,7 @@ export default async function CapperDetail({
           maxLossStreak={combined.maxLossStreak}
           lifetimeAvgOdds={lifetimeAvgOdds}
           lifetimeAvgDailyRisk={lifetimeAvgDailyRisk}
+          lifetimeAvgBetRisk={lifetimeAvgBetRisk}
         />
 
         {baseline ? (

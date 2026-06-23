@@ -48,6 +48,8 @@ import {
 } from "@/lib/timeframe";
 import ExportButton from "@/components/ExportButton";
 import PmLogo from "@/components/PmLogo";
+import ProfitabilityBySport from "@/components/ProfitabilityBySport";
+import { isSport, type Sport } from "@/lib/sports";
 import CumulativeUnitsChart from "@/components/charts/CumulativeUnitsChart";
 import DailySummary from "@/components/DailySummary";
 import PerformanceSummary from "@/components/PerformanceSummary";
@@ -86,6 +88,7 @@ export default async function Dashboard({
     { data: baselineRows },
     { data: systemBaselineRow },
     { data: chartPointRows },
+    { data: betRowsRaw },
   ] = await Promise.all([
     supabase.from("systems").select("*").eq("id", sysId).single(),
     supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date"),
@@ -95,6 +98,16 @@ export default async function Dashboard({
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
     supabase.from("system_baselines").select("*").eq("system_id", sysId).maybeSingle(),
     supabase.from("chart_baseline_points").select("*").eq("system_id", sysId).is("capper_id", null).order("day_number"),
+    // Skinny bet fetch for the Profitability-by-Sport panel: only the
+    // fields we aggregate, only graded bets with a sport assigned.
+    // Period filtering happens in the TS layer so the same fetch
+    // serves whichever timeframe the user selects.
+    supabase
+      .from("capper_bet_entries")
+      .select("sport, bet_result, amount_pnl, date, capper_day_entry_id, capper_id")
+      .eq("system_id", sysId)
+      .not("sport", "is", null)
+      .in("bet_result", ["win", "loss"]),
   ]);
 
   const system = sys as System;
@@ -170,6 +183,58 @@ export default async function Dashboard({
     scalingRows,
   );
   const lifetimeAvgBetRisk = avgBetRiskFromJournal(journalRows, scalingRows);
+
+  /**
+   * Profitability by Sport — aggregate graded bets in the active
+   * timeframe by their assigned sport tag.
+   *
+   * Filtering mirrors the rest of the dashboard's "system metric"
+   * rules so the panel reads the same world as the surrounding
+   * summary cards:
+   *   - bets must belong to a capper in eligibleCapperIds (respects
+   *     the include_archived_in_system_metrics setting),
+   *   - the bet's parent capper_day_entry must NOT have
+   *     excluded_from_system = true (the testing-phase exclusion),
+   *   - the bet must be graded (win/loss; pending + void already
+   *     filtered at the SQL fetch),
+   *   - sport must be in our known set (legacy free-text tags are
+   *     skipped).
+   * Period scope is applied per-bet by its own `date` column so
+   * day/week/month/quarter/year/custom/all all just work.
+   */
+  const includedDayIds = new Set(
+    allDayRows
+      .filter(
+        (d) =>
+          eligibleCapperIds.has(d.capper_id) && !d.excluded_from_system,
+      )
+      .map((d) => d.id),
+  );
+  const betsForPanel = (betRowsRaw ?? []) as Array<{
+    sport: string | null;
+    bet_result: string;
+    amount_pnl: number | string;
+    date: string;
+    capper_day_entry_id: string;
+    capper_id: string;
+  }>;
+  const sportAgg = new Map<
+    Sport,
+    { sport: Sport; wins: number; losses: number; netPnl: number }
+  >();
+  for (const b of betsForPanel) {
+    if (!includedDayIds.has(b.capper_day_entry_id)) continue;
+    if (!isInPeriod(b.date, period)) continue;
+    if (!isSport(b.sport)) continue;
+    const key = b.sport as Sport;
+    const cur =
+      sportAgg.get(key) ?? { sport: key, wins: 0, losses: 0, netPnl: 0 };
+    if (b.bet_result === "win") cur.wins += 1;
+    else if (b.bet_result === "loss") cur.losses += 1;
+    cur.netPnl += Number(b.amount_pnl) || 0;
+    sportAgg.set(key, cur);
+  }
+  const profitabilityBySport = [...sportAgg.values()];
 
   // Streak math — bucket the FULL journal history by the timeframe's
   // bucket key (so week/month/year streaks consider all prior history),
@@ -693,6 +758,14 @@ export default async function Dashboard({
             : bucketStreakBreakdown(periodBuckets)
         }
         unitLabel={streakUnitLabel(period)}
+      />
+
+      {/* Profitability by Sport — aggregates graded bets within the
+          active timeframe by their assigned sport. Same scope rules
+          as the journal-driven panels above so the numbers reconcile. */}
+      <ProfitabilityBySport
+        rows={profitabilityBySport}
+        subtitle={period.label}
       />
 
       {/* capper summary */}

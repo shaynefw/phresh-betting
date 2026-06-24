@@ -185,29 +185,40 @@ export default async function Dashboard({
   const lifetimeAvgBetRisk = avgBetRiskFromJournal(journalRows, scalingRows);
 
   /**
-   * Profitability by Sport — aggregate graded bets in the active
-   * timeframe by their assigned sport tag.
+   * Profitability by Sport — aggregate REALIZED, sport-tagged bets in
+   * the active timeframe.
    *
-   * Filtering mirrors the rest of the dashboard's "system metric"
-   * rules so the panel reads the same world as the surrounding
-   * summary cards:
-   *   - bets must belong to a capper in eligibleCapperIds (respects
-   *     the include_archived_in_system_metrics setting),
-   *   - the bet's parent capper_day_entry must NOT have
-   *     excluded_from_system = true (the testing-phase exclusion),
-   *   - the bet must be graded (win/loss; pending + void already
-   *     filtered at the SQL fetch),
-   *   - sport must be in our known set (legacy free-text tags are
-   *     skipped).
-   * Period scope is applied per-bet by its own `date` column so
-   * day/week/month/quarter/year/custom/all all just work.
+   * Filter rules per product spec — intentionally different from the
+   * rest of the dashboard's system-metric rules:
+   *
+   *   1. Realized only: bet_result must be win/loss (pending + void
+   *      are already filtered out at the SQL fetch).
+   *
+   *   2. Testing-phase exclusion is the ONLY day-level gate: a bet's
+   *      parent capper_day_entry must have excluded_from_system =
+   *      false. That flag is stamped per-day at write time, so if a
+   *      capper is flipped INTO testing phase later, their previously
+   *      realized days remain in the metric (historical-data
+   *      integrity). New bets logged while in testing phase get the
+   *      flag and are correctly excluded.
+   *
+   *   3. Data permanence: archived OR soft-deleted cappers stay in
+   *      the metric — once realized data exists, only a hard delete
+   *      removes it from the DB and therefore from this panel. We do
+   *      NOT consult eligibleCapperIds /
+   *      include_archived_in_system_metrics here.
+   *
+   *   4. Sport must be in our known set (legacy free-text tags
+   *      are skipped — there shouldn't be any, but the guard is
+   *      defensive).
+   *
+   * Period scope is applied per-bet via the bet's own `date` column
+   * so Day / Week / Month / Quarter / Year / Custom / All all just
+   * work without any branching here.
    */
   const includedDayIds = new Set(
     allDayRows
-      .filter(
-        (d) =>
-          eligibleCapperIds.has(d.capper_id) && !d.excluded_from_system,
-      )
+      .filter((d) => !d.excluded_from_system)
       .map((d) => d.id),
   );
   const betsForPanel = (betRowsRaw ?? []) as Array<{

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createAdminClient, fetchAllRows } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import {
   activeScalingRow,
@@ -81,34 +81,57 @@ export default async function Dashboard({
 
   const [
     { data: sys },
-    { data: journal },
+    journalAll,
     { data: scaling },
     { data: cappers },
-    { data: dayRows },
+    dayRowsAll,
     { data: baselineRows },
     { data: systemBaselineRow },
     { data: chartPointRows },
-    { data: betRowsRaw },
+    betRowsAll,
   ] = await Promise.all([
     supabase.from("systems").select("*").eq("id", sysId).single(),
-    supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date"),
+    // journal_day_entries, capper_day_entries and the sport-bet fetch
+    // are all system-wide and can exceed PostgREST's 1000-row default
+    // cap on an active system. Page through the full result set (see
+    // fetchAllRows) so the newest rows never silently drop — a capped
+    // fetch here is what made the capper overview lag the capper page.
+    fetchAllRows<JournalDayEntry>(() =>
+      supabase.from("journal_day_entries").select("*").eq("system_id", sysId).order("date").order("id"),
+    ),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
     supabase.from("cappers").select("*").eq("system_id", sysId).order("sort_order").order("created_at"),
-    supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
+    fetchAllRows<CapperDayEntry>(() =>
+      supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date").order("id"),
+    ),
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
     supabase.from("system_baselines").select("*").eq("system_id", sysId).maybeSingle(),
     supabase.from("chart_baseline_points").select("*").eq("system_id", sysId).is("capper_id", null).order("day_number"),
     // Skinny bet fetch for the Profitability-by-Sport panel: only the
     // fields we aggregate, only graded bets with a sport assigned.
     // Period filtering happens in the TS layer so the same fetch
-    // serves whichever timeframe the user selects.
-    supabase
-      .from("capper_bet_entries")
-      .select("sport, bet_result, amount_pnl, date, capper_day_entry_id, capper_id")
-      .eq("system_id", sysId)
-      .not("sport", "is", null)
-      .in("bet_result", ["win", "loss"]),
+    // serves whichever timeframe the user selects. `id` is appended as
+    // a deterministic sort key for pagination.
+    fetchAllRows<{
+      sport: string | null;
+      bet_result: string;
+      amount_pnl: number | string;
+      date: string;
+      capper_day_entry_id: string;
+      capper_id: string;
+    }>(() =>
+      supabase
+        .from("capper_bet_entries")
+        .select("sport, bet_result, amount_pnl, date, capper_day_entry_id, capper_id, id")
+        .eq("system_id", sysId)
+        .not("sport", "is", null)
+        .in("bet_result", ["win", "loss"])
+        .order("id"),
+    ),
   ]);
+  const journal = journalAll;
+  const dayRows = dayRowsAll;
+  const betRowsRaw = betRowsAll;
 
   const system = sys as System;
   const journalRows = (journal ?? []) as JournalDayEntry[];

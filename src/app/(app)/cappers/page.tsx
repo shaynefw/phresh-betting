@@ -1,7 +1,7 @@
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { createAdminClient, fetchAllRows } from "@/lib/supabase/admin";
 import { loadShellContext } from "@/lib/active-system";
 import type {
   Capper,
@@ -119,12 +119,18 @@ export default async function CappersPage() {
   const [
     { data: cappers },
     { data: scaling },
-    { data: dayRows },
+    // capper_day_entries + capper_bet_entries can both exceed
+    // PostgREST's 1000-row default cap on an active system. Page
+    // through the full set (see fetchAllRows) so days.at(-1) sees the
+    // true latest day and Avg Odds covers every bet — otherwise the
+    // newest rows silently drop and the overview lags the capper page.
+    dayRowsAll,
     { data: baselineRows },
     // Skinny fetch for the lifetime Avg Odds metric — we only need
     // (capper_id, odds), not the whole bet rows. Filters out null /
-    // empty odds at the DB to keep the payload tight.
-    { data: betOdds },
+    // empty odds at the DB to keep the payload tight. `id` is only
+    // included as a deterministic sort key for pagination.
+    betOddsAll,
     // Per-capper baseline graph points — fuels the Last-20 baseline
     // fallback when a capper has fewer than 20 eligible tracked days.
     { data: chartPointRows },
@@ -132,13 +138,18 @@ export default async function CappersPage() {
     supabase.from("cappers").select("*").eq("system_id", sysId)
       .order("sort_order").order("created_at"),
     supabase.from("scaling_log_entries").select("*").eq("system_id", sysId).order("effective_date"),
-    supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date"),
+    fetchAllRows<CapperDayEntry>(() =>
+      supabase.from("capper_day_entries").select("*").eq("system_id", sysId).order("date").order("id"),
+    ),
     supabase.from("capper_baselines").select("*").eq("system_id", sysId),
-    supabase
-      .from("capper_bet_entries")
-      .select("capper_id, odds")
-      .eq("system_id", sysId)
-      .not("odds", "is", null),
+    fetchAllRows<{ capper_id: string; odds: number | null }>(() =>
+      supabase
+        .from("capper_bet_entries")
+        .select("capper_id, odds, id")
+        .eq("system_id", sysId)
+        .not("odds", "is", null)
+        .order("id"),
+    ),
     supabase
       .from("chart_baseline_points")
       .select("*")
@@ -149,7 +160,8 @@ export default async function CappersPage() {
 
   const list = (cappers ?? []) as Capper[];
   const scalingRows = (scaling ?? []) as ScalingLogEntry[];
-  const allDayRows = (dayRows ?? []) as CapperDayEntry[];
+  const allDayRows = dayRowsAll as CapperDayEntry[];
+  const betOdds = betOddsAll;
   const baselines = (baselineRows ?? []) as CapperBaseline[];
   const today = todayISO();
   const activeRow = activeScalingRow(scalingRows, today);

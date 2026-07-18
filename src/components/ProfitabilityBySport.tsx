@@ -58,17 +58,24 @@ function Layout({ rows }: { rows: SportRow[] }) {
   const sorted = [...rows].sort((a, b) => b.netPnl - a.netPnl);
   const maxAbs = Math.max(...sorted.map((r) => Math.abs(r.netPnl)), 1);
 
+  // Both columns render one fixed-height row per sport in the same
+  // sorted order, so each list row lines up on the exact same
+  // horizontal plane as its bar row. ROW_H is shared; the list rows
+  // carry a visible divider and the chart rows carry a transparent one
+  // of identical thickness so the two columns never drift.
+  const ROW_H = "h-10";
+
   return (
-    <div className="grid md:grid-cols-2 gap-4 md:gap-6">
+    <div className="grid md:grid-cols-2 gap-x-6 md:gap-x-10 gap-y-4">
       {/* List view */}
-      <ul className="divide-y divide-border">
+      <ul>
         {sorted.map((r) => {
           const tone =
             r.netPnl > 0 ? "text-good" : r.netPnl < 0 ? "text-bad" : "text-ink-dim";
           return (
             <li
               key={r.sport}
-              className="py-2 flex items-center justify-between gap-3"
+              className={`${ROW_H} flex items-center justify-between gap-3 border-b border-border last:border-0`}
             >
               <span className="flex items-center gap-2 min-w-0">
                 <SportIcon sport={r.sport} size={14} />
@@ -77,7 +84,7 @@ function Layout({ rows }: { rows: SportRow[] }) {
                 </span>
               </span>
               <span className="flex items-center gap-3 shrink-0">
-                <span className="font-mono text-[11px] text-ink-dim tabular-nums">
+                <span className="font-mono text-sm text-ink-dim tabular-nums">
                   {r.wins}-{r.losses}
                 </span>
                 <span className={`font-mono text-sm tabular-nums ${tone}`}>
@@ -90,16 +97,21 @@ function Layout({ rows }: { rows: SportRow[] }) {
       </ul>
 
       {/* Bar chart view — horizontal bars, sport label + value flank the
-          bar so even at narrow widths everything stays legible. */}
-      <ul className="space-y-2">
+          bar so even at narrow widths everything stays legible. Rows use
+          the same fixed height + a transparent divider so they align
+          1:1 with the list column. */}
+      <ul>
         {sorted.map((r) => {
           const isPos = r.netPnl >= 0;
           const pct = (Math.abs(r.netPnl) / maxAbs) * 100;
           return (
-            <li key={r.sport} className="flex items-center gap-2">
-              <span className="flex items-center gap-1.5 w-24 md:w-28 shrink-0">
-                <SportIcon sport={r.sport} size={12} />
-                <span className="text-xs text-ink truncate">
+            <li
+              key={r.sport}
+              className={`${ROW_H} flex items-center gap-2 border-b border-transparent last:border-0`}
+            >
+              <span className="flex items-center gap-2 w-24 md:w-28 shrink-0">
+                <SportIcon sport={r.sport} size={14} />
+                <span className="text-sm text-ink truncate">
                   {sportLabel(r.sport)}
                 </span>
               </span>
@@ -125,7 +137,7 @@ function Layout({ rows }: { rows: SportRow[] }) {
                 </span>
               </span>
               <span
-                className={`font-mono text-[11px] tabular-nums w-16 text-right shrink-0 ${
+                className={`font-mono text-xs tabular-nums w-20 text-right shrink-0 ${
                   isPos ? "text-good" : "text-bad"
                 }`}
               >

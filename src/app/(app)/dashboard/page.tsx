@@ -42,6 +42,8 @@ import {
   isInPeriod,
   periodColumnHeader,
   periodFooterLabel,
+  periodProfitLabel,
+  periodUnitsLabel,
   resolvePeriod,
   streakUnitLabel,
   summaryTitle,
@@ -651,12 +653,12 @@ export default async function Dashboard({
               tone={dayJournal?.daily_roi_percent ?? 0}
             />
             <HeroMetric
-              label="Daily Units"
+              label={periodUnitsLabel(period)}
               value={fmtUnits(dayJournal?.daily_units_pnl ?? 0)}
               tone={dayJournal?.daily_units_pnl ?? 0}
             />
             <HeroMetric
-              label="Daily $ Profit"
+              label={periodProfitLabel(period)}
               value={fmtMoney(dayJournal?.daily_amount_pnl ?? 0, { sign: true })}
               tone={dayJournal?.daily_amount_pnl ?? 0}
             />
@@ -739,6 +741,8 @@ export default async function Dashboard({
           <DailySummary
             focusDate={period.anchorDate}
             title={summaryTitle(period)}
+            profitLabel={periodProfitLabel(period)}
+            unitsLabel={periodUnitsLabel(period)}
             dayJournal={
               {
                 id: "synthetic",

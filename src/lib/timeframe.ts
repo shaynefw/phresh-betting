@@ -591,6 +591,59 @@ export function summaryTitle(p: Period): string {
   }
 }
 
+/**
+ * "$ Profit" metric label for the active period.
+ *
+ *   Day      → Daily $ Profit
+ *   Week     → Weekly $ Profit
+ *   Month    → Monthly $ Profit
+ *   Quarter  → Quarterly $ Profit
+ *   Year     → Yearly $ Profit
+ *   All      → All-Time $ Profit
+ *   Custom   → Range $ Profit (or Daily for a single-day range)
+ */
+export function periodProfitLabel(p: Period): string {
+  switch (p.kind) {
+    case "day":
+      return "Daily $ Profit";
+    case "week":
+      return "Weekly $ Profit";
+    case "month":
+      return "Monthly $ Profit";
+    case "quarter":
+      return "Quarterly $ Profit";
+    case "year":
+      return "Yearly $ Profit";
+    case "all":
+      return "All-Time $ Profit";
+    case "custom":
+      return p.start === p.end ? "Daily $ Profit" : "Range $ Profit";
+  }
+}
+
+/**
+ * "Units" metric label for the active period — same wording rule as
+ * periodProfitLabel so the two tiles stay consistent on every tab.
+ */
+export function periodUnitsLabel(p: Period): string {
+  switch (p.kind) {
+    case "day":
+      return "Daily Units";
+    case "week":
+      return "Weekly Units";
+    case "month":
+      return "Monthly Units";
+    case "quarter":
+      return "Quarterly Units";
+    case "year":
+      return "Yearly Units";
+    case "all":
+      return "All-Time Units";
+    case "custom":
+      return p.start === p.end ? "Daily Units" : "Range Units";
+  }
+}
+
 /** Footer pill / capper-column label for the active period. */
 export function periodFooterLabel(p: Period): string {
   switch (p.kind) {

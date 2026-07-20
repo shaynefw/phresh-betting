@@ -67,39 +67,31 @@ function Layout({ rows }: { rows: SportRow[] }) {
 
   return (
     <div className="grid md:grid-cols-2 gap-x-6 md:gap-x-10 gap-y-4">
-      {/* List view */}
+      {/* Left column — sport identity + record. The PnL total lives at
+          the far right of the row (end of the bar), so it isn't
+          duplicated here. */}
       <ul>
-        {sorted.map((r) => {
-          const tone =
-            r.netPnl > 0 ? "text-good" : r.netPnl < 0 ? "text-bad" : "text-ink-dim";
-          return (
-            <li
-              key={r.sport}
-              className={`${ROW_H} flex items-center justify-between gap-3 border-b border-border last:border-0`}
-            >
-              <span className="flex items-center gap-2 min-w-0">
-                <SportIcon sport={r.sport} size={14} />
-                <span className="text-sm text-ink truncate">
-                  {sportLabel(r.sport)}
-                </span>
+        {sorted.map((r) => (
+          <li
+            key={r.sport}
+            className={`${ROW_H} flex items-center justify-between gap-3 border-b border-border last:border-0`}
+          >
+            <span className="flex items-center gap-2 min-w-0">
+              <SportIcon sport={r.sport} size={14} />
+              <span className="text-sm text-ink truncate">
+                {sportLabel(r.sport)}
               </span>
-              <span className="flex items-center gap-3 shrink-0">
-                <span className="font-mono text-sm text-ink-dim tabular-nums">
-                  {r.wins}-{r.losses}
-                </span>
-                <span className={`font-mono text-sm tabular-nums ${tone}`}>
-                  {fmtMoney(r.netPnl, { sign: true })}
-                </span>
-              </span>
-            </li>
-          );
-        })}
+            </span>
+            <span className="font-mono text-sm text-ink-dim tabular-nums shrink-0">
+              {recordLabel(r.wins, r.losses)}
+            </span>
+          </li>
+        ))}
       </ul>
 
-      {/* Bar chart view — horizontal bars, sport label + value flank the
-          bar so even at narrow widths everything stays legible. Rows use
-          the same fixed height + a transparent divider so they align
-          1:1 with the list column. */}
+      {/* Right column — bar + the row's single PnL total. Sport
+          icon/name are intentionally omitted; they're already on the
+          left and each bar row aligns 1:1 with its list row. */}
       <ul>
         {sorted.map((r) => {
           const isPos = r.netPnl >= 0;
@@ -107,14 +99,8 @@ function Layout({ rows }: { rows: SportRow[] }) {
           return (
             <li
               key={r.sport}
-              className={`${ROW_H} flex items-center gap-2 border-b border-transparent last:border-0`}
+              className={`${ROW_H} flex items-center gap-3 border-b border-transparent last:border-0`}
             >
-              <span className="flex items-center gap-2 w-24 md:w-28 shrink-0">
-                <SportIcon sport={r.sport} size={14} />
-                <span className="text-sm text-ink truncate">
-                  {sportLabel(r.sport)}
-                </span>
-              </span>
               {/* 2-half track so the zero line sits in the middle when both
                   green and red values exist. Positive bars grow rightward
                   from center; negative bars grow leftward. */}
@@ -137,7 +123,7 @@ function Layout({ rows }: { rows: SportRow[] }) {
                 </span>
               </span>
               <span
-                className={`font-mono text-xs tabular-nums w-20 text-right shrink-0 ${
+                className={`font-mono text-sm tabular-nums w-24 text-right shrink-0 ${
                   isPos ? "text-good" : "text-bad"
                 }`}
               >
@@ -149,4 +135,16 @@ function Layout({ rows }: { rows: SportRow[] }) {
       </ul>
     </div>
   );
+}
+
+/**
+ * "7-5 (58.3%)" — win-loss record with win percentage. The percentage
+ * is omitted when there are no graded bets so we never print "(NaN%)"
+ * or a meaningless "(0.0%)" for an empty record.
+ */
+function recordLabel(wins: number, losses: number): string {
+  const total = wins + losses;
+  if (total === 0) return `${wins}-${losses}`;
+  const pct = (wins / total) * 100;
+  return `${wins}-${losses} (${pct.toFixed(1)}%)`;
 }

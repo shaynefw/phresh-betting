@@ -19,9 +19,26 @@ interface Props {
   dayJournal: JournalDayEntry | null;
   /** Override the section title. Defaults to "Daily Summary — {focusDate}". */
   title?: string;
+  /**
+   * Timeframe-aware label for the $ Profit tile (e.g. "Weekly $
+   * Profit"). Defaults to "Daily $ Profit" so existing single-day
+   * callers (e.g. /bets) render exactly as before.
+   */
+  profitLabel?: string;
+  /**
+   * Timeframe-aware label for the units tile. Defaults to the legacy
+   * "Cumulative Units" wording so /bets renders unchanged.
+   */
+  unitsLabel?: string;
 }
 
-export default function DailySummary({ focusDate, dayJournal, title }: Props) {
+export default function DailySummary({
+  focusDate,
+  dayJournal,
+  title,
+  profitLabel = "Daily $ Profit",
+  unitsLabel = "Cumulative Units",
+}: Props) {
   return (
     <div className="panel p-3 md:p-5">
       <h3 className="kpi-label mb-3">
@@ -36,12 +53,12 @@ export default function DailySummary({ focusDate, dayJournal, title }: Props) {
           tone={dayJournal?.daily_roi_percent ?? 0}
         />
         <MiniStat
-          label="Cumulative Units"
+          label={unitsLabel}
           value={fmtUnits(dayJournal?.daily_units_pnl ?? 0)}
           tone={dayJournal?.daily_units_pnl ?? 0}
         />
         <MiniStat
-          label="Daily $ Profit"
+          label={profitLabel}
           value={fmtMoney(dayJournal?.daily_amount_pnl ?? 0, { sign: true })}
           tone={dayJournal?.daily_amount_pnl ?? 0}
         />

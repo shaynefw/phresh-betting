@@ -29,6 +29,12 @@ export interface System {
    * Individual capper detail pages are unaffected.
    */
   include_archived_in_system_metrics: boolean;
+  /**
+   * Read-only public share token. Non-null → the system is viewable at
+   * /share/<share_token> with no auth. Null → private. Revoking a share
+   * link just nulls this column.
+   */
+  share_token: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -5,6 +5,10 @@ const isPublicRoute = createRouteMatcher([
   "/",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  // Read-only shared system views. Access is gated by an unguessable
+  // share_token in the path; the page itself resolves the token and
+  // 404s if it's missing or revoked. No sign-in required.
+  "/share(.*)",
   // Next.js auto-generated metadata image routes. These are NOT static
   // files (no extension), so the matcher.config's asset exclusion can't
   // skip them — without explicit public-route whitelisting, Clerk

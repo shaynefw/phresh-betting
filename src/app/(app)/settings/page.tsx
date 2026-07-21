@@ -12,10 +12,41 @@ import type {
   System,
   SystemBaseline,
 } from "@/lib/types";
+import { randomUUID } from "crypto";
 import BackupTools from "./BackupTools";
 import SystemBaselineForm from "./SystemBaselineForm";
+import ShareLink from "./ShareLink";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Create (or rotate) a read-only public share token for the system.
+ * Anyone with the resulting /share/<token> URL can view the system
+ * read-only until it's revoked.
+ */
+async function createShareLink(formData: FormData) {
+  "use server";
+  const id = String(formData.get("id"));
+  if (!id) return;
+  const token = randomUUID().replace(/-/g, "");
+  await createAdminClient()
+    .from("systems")
+    .update({ share_token: token })
+    .eq("id", id);
+  revalidatePath("/settings");
+}
+
+/** Revoke the share link — nulls the token so /share/<token> 404s. */
+async function revokeShareLink(formData: FormData) {
+  "use server";
+  const id = String(formData.get("id"));
+  if (!id) return;
+  await createAdminClient()
+    .from("systems")
+    .update({ share_token: null })
+    .eq("id", id);
+  revalidatePath("/settings");
+}
 
 async function updateSystem(formData: FormData) {
   "use server";
@@ -169,6 +200,13 @@ export default async function SettingsPage() {
           <button className="btn-primary">Save inclusion rules</button>
         </div>
       </form>
+
+      <ShareLink
+        systemId={sysId}
+        shareToken={system?.share_token ?? null}
+        createAction={createShareLink}
+        revokeAction={revokeShareLink}
+      />
 
       <SystemBaselineForm
         systemId={sysId}

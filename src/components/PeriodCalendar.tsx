@@ -707,29 +707,29 @@ function WeekDayGrid({
         return (
           <div
             key={date}
-            className={`relative rounded-md border p-2 md:p-2.5 min-h-[80px] md:min-h-[96px] transition flex flex-col ${cellTone(units, hasData)}`}
+            className={`relative rounded-md border p-1 md:p-2.5 min-h-[76px] md:min-h-[96px] overflow-hidden transition flex flex-col ${cellTone(units, hasData)}`}
           >
-            <div className="flex items-baseline justify-between">
-              <div className="text-[10px] text-ink-dim tracking-widest uppercase">
+            <div className="flex items-baseline justify-between gap-0.5">
+              <div className="text-[9px] md:text-[10px] text-ink-dim tracking-wide uppercase">
                 {dow}
               </div>
-              <div className="text-xs md:text-sm font-medium text-ink">
+              <div className="text-[11px] md:text-sm font-medium text-ink">
                 {dayN}
               </div>
             </div>
             {hasData ? (
-              <div className="mt-auto">
+              <div className="mt-auto min-w-0">
                 <div
-                  className={`text-sm md:text-base font-mono font-bold leading-tight ${pctClass(units)}`}
+                  className={`text-[11px] md:text-base font-mono font-bold leading-tight tabular-nums truncate ${pctClass(units)}`}
                 >
                   {fmtUnits(units)}
                 </div>
                 <div
-                  className={`text-[10px] md:text-[11px] font-mono leading-tight ${pctClass(amt)}`}
+                  className={`text-[9px] md:text-[11px] font-mono leading-tight tabular-nums truncate ${pctClass(amt)}`}
                 >
                   {fmtMoney(amt, { sign: true })}
                 </div>
-                <div className="text-[9px] md:text-[10px] text-ink-dim font-mono leading-tight mt-0.5">
+                <div className="text-[9px] md:text-[10px] text-ink-dim font-mono leading-tight tabular-nums truncate mt-0.5">
                   {row.wins}-{row.losses}
                 </div>
               </div>
@@ -795,24 +795,24 @@ function MonthDayGrid({
           return (
             <div
               key={c.date}
-              className={`relative rounded-md border p-1.5 md:p-2 min-h-[58px] md:min-h-[68px] transition flex flex-col ${cellTone(units, hasData)}`}
+              className={`relative rounded-md border p-1 md:p-2 min-h-[56px] md:min-h-[68px] overflow-hidden transition flex flex-col ${cellTone(units, hasData)}`}
             >
-              <div className="text-[10px] md:text-xs font-medium text-ink">
+              <div className="text-[10px] md:text-xs font-medium text-ink leading-none">
                 {dayN}
               </div>
               {hasData ? (
-                <div className="mt-auto">
+                <div className="mt-auto min-w-0">
                   <div
-                    className={`text-[11px] md:text-sm font-mono font-bold leading-tight ${pctClass(units)}`}
+                    className={`text-[10px] md:text-sm font-mono font-bold leading-tight tabular-nums truncate ${pctClass(units)}`}
                   >
                     {fmtUnits(units)}
                   </div>
                   <div
-                    className={`text-[9px] md:text-[10px] font-mono leading-tight ${pctClass(amt)}`}
+                    className={`text-[8px] md:text-[10px] font-mono leading-tight tabular-nums truncate ${pctClass(amt)}`}
                   >
                     {fmtMoney(amt, { sign: true })}
                   </div>
-                  <div className="text-[8px] md:text-[9px] text-ink-dim font-mono leading-tight mt-0.5">
+                  <div className="text-[8px] md:text-[9px] text-ink-dim font-mono leading-tight tabular-nums truncate mt-0.5">
                     {row.wins}-{row.losses}
                   </div>
                 </div>

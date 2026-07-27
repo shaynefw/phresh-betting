@@ -415,7 +415,7 @@ function RightRail({
                     {fmtUnits(b.units)}
                   </div>
                   <div
-                    className={`text-[10px] font-mono leading-tight ${pctClass(b.amount)}`}
+                    className={`text-base md:text-lg font-mono font-bold leading-tight ${pctClass(b.amount)}`}
                   >
                     {fmtMoney(b.amount, { sign: true })}
                   </div>
@@ -725,7 +725,7 @@ function WeekDayGrid({
                   {fmtUnits(units)}
                 </div>
                 <div
-                  className={`text-[9px] md:text-[11px] font-mono leading-tight tabular-nums truncate ${pctClass(amt)}`}
+                  className={`text-[11px] md:text-base font-mono font-bold leading-tight tabular-nums truncate ${pctClass(amt)}`}
                 >
                   {fmtMoney(amt, { sign: true })}
                 </div>
@@ -808,7 +808,7 @@ function MonthDayGrid({
                     {fmtUnits(units)}
                   </div>
                   <div
-                    className={`text-[8px] md:text-[10px] font-mono leading-tight tabular-nums truncate ${pctClass(amt)}`}
+                    className={`text-[10px] md:text-sm font-mono font-bold leading-tight tabular-nums truncate ${pctClass(amt)}`}
                   >
                     {fmtMoney(amt, { sign: true })}
                   </div>
@@ -905,7 +905,7 @@ function QuarterWeekGrid({
               {fmtUnits(c.units)}
             </div>
             <div
-              className={`text-[11px] font-mono leading-tight ${pctClass(c.amount)}`}
+              className={`text-base md:text-lg font-mono font-bold leading-tight ${pctClass(c.amount)}`}
             >
               {fmtMoney(c.amount, { sign: true })}
             </div>
@@ -1001,7 +1001,7 @@ function YearGrid({
                   {fmtUnits(c.units)}
                 </div>
                 <div
-                  className={`text-[11px] font-mono leading-tight ${pctClass(c.amount)}`}
+                  className={`text-base md:text-lg font-mono font-bold leading-tight ${pctClass(c.amount)}`}
                 >
                   {fmtMoney(c.amount, { sign: true })}
                 </div>

@@ -13,7 +13,11 @@ import type {
 import { safeDiv } from "./utils";
 
 export const SCALE_BAND_UNITS = 25;
-export const SCALE_FACTOR_UP = 1.25;
+// Scale-up multiplier for the next unit size / bankroll baseline. The
+// next unit size = round(prevUnit × 1.35); the next baseline bankroll
+// = that rounded unit × BANKROLL_UNITS (100). e.g. 36 × 1.35 = 48.60
+// → 49 → $4,900.
+export const SCALE_FACTOR_UP = 1.35;
 export const SCALE_FACTOR_DOWN = 0.75;
 
 export function scaleSize(size: number, direction: "up" | "down"): number {
@@ -242,9 +246,61 @@ export function avgBetRiskFromJournal(
  * constant so the UI form preview and the page-level "recalculate
  * bankroll" action stay in sync.
  */
-export const BANKROLL_UNITS = 50;
+export const BANKROLL_UNITS = 100;
 export function bankrollForUnit(unitSize: number): number {
   return Math.round(Number(unitSize) * BANKROLL_UNITS);
+}
+
+/**
+ * Bankroll state for the CURRENTLY ACTIVE scale level.
+ *
+ *   baselineBankroll = active unit size × BANKROLL_UNITS (100)
+ *   inLevelProfit    = sum of daily $ P&L on/after the active level's
+ *                      effective_date (the profit earned while at this
+ *                      unit size — tracked separately from baseline)
+ *   currentBankroll  = baselineBankroll + inLevelProfit
+ *   bankrollPct      = currentBankroll / baselineBankroll × 100
+ *                      (100% = exactly at baseline; <100 below; >100
+ *                      above because in-level profit was added)
+ *
+ * All figures reflect the active level only — independent of whatever
+ * timeframe tab the dashboard is showing.
+ */
+export interface BankrollState {
+  levelStartDate: string | null;
+  currentUnitSize: number;
+  baselineBankroll: number;
+  inLevelProfit: number;
+  currentBankroll: number;
+  bankrollPct: number;
+}
+
+export function computeBankrollState(
+  activeRow: ScalingLogEntry | null,
+  journalRows: Array<{ date: string; daily_amount_pnl: number | string }>,
+): BankrollState {
+  const currentUnitSize = Number(activeRow?.unit_size_dollars ?? 0);
+  const baselineBankroll = bankrollForUnit(currentUnitSize);
+  const levelStartDate = activeRow?.effective_date ?? null;
+
+  let inLevelProfit = 0;
+  for (const r of journalRows) {
+    if (levelStartDate && r.date < levelStartDate) continue;
+    inLevelProfit += Number(r.daily_amount_pnl) || 0;
+  }
+
+  const currentBankroll = baselineBankroll + inLevelProfit;
+  const bankrollPct =
+    baselineBankroll > 0 ? (currentBankroll / baselineBankroll) * 100 : 0;
+
+  return {
+    levelStartDate,
+    currentUnitSize,
+    baselineBankroll,
+    inLevelProfit,
+    currentBankroll,
+    bankrollPct,
+  };
 }
 
 export interface ScalingSequence {

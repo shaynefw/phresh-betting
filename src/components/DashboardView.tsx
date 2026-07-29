@@ -4,7 +4,12 @@ import {
   activeScalingRow,
   avgBetRiskFromJournal,
   avgDailyRiskFromJournal,
+  BANKROLL_UNITS,
+  bankrollForUnit,
+  computeBankrollState,
   computeScalingState,
+  enrichScalingRows,
+  scaleSize,
   summarizeJournal,
 } from "@/lib/calc";
 import {
@@ -306,6 +311,25 @@ export default async function DashboardView({
   // into journal_day_entries so it's already included).
   const scaleState = computeScalingState(journalSummary.cumulativeUnits, activeRow);
 
+  /* -----------------------------------------------------------------
+   * Bankroll state — always the CURRENTLY ACTIVE scale level, so this
+   * is independent of the selected timeframe tab. We resolve the
+   * active row as of today (the latest effective scaling row), derive
+   * its 1-based level number from the enriched history, and split the
+   * bankroll into baseline (unit × 100) + in-level profit ($ P&L since
+   * the level's effective date).
+   * --------------------------------------------------------------- */
+  const currentScaleRow = activeScalingRow(scalingRows, todayISO());
+  const bankroll = computeBankrollState(currentScaleRow, journalRows);
+  const enrichedScaling = enrichScalingRows(scalingRows, journalRows, todayISO());
+  const currentLevel =
+    enrichedScaling.find((e) => e.row.id === currentScaleRow?.id)?.level ?? null;
+  // Next scale-up baseline preview (round(unit × 1.35) × 100).
+  const nextUnitSize = bankroll.currentUnitSize
+    ? scaleSize(bankroll.currentUnitSize, "up")
+    : 0;
+  const nextBaselineBankroll = bankrollForUnit(nextUnitSize);
+
   /**
    * Chart data assembly — JOURNAL-ONLY.
    *
@@ -490,6 +514,79 @@ export default async function DashboardView({
           )}
         </div>
       </header>
+
+      {/* Bankroll — always reflects the CURRENT active scale level
+          (independent of the timeframe tab). Baseline = unit × 100;
+          in-level profit = $ P&L since this level's effective date;
+          current = baseline + in-level profit; % = current / baseline.
+          The scale-up preview shows next unit (round(unit × 1.35)) and
+          its baseline bankroll (× 100). */}
+      <section>
+        <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+          <div className="kpi-label flex items-center gap-2">
+            Bankroll
+            {currentLevel != null && (
+              <span className="text-[10px] text-ink-dim normal-case tracking-normal">
+                Scale Level {currentLevel} · ${bankroll.currentUnitSize}/unit
+              </span>
+            )}
+          </div>
+          {nextUnitSize > 0 && (
+            <span className="text-[11px] text-ink-dim">
+              Next scale-up baseline:{" "}
+              <span className="text-ink font-mono">
+                {fmtMoney(nextBaselineBankroll)}
+              </span>{" "}
+              (${nextUnitSize}/unit)
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="panel p-4">
+            <div className="kpi-label mb-1">Current Bankroll</div>
+            <div className="kpi-value font-mono text-ink">
+              {fmtMoney(bankroll.currentBankroll)}
+            </div>
+            <div
+              className={`text-xs font-mono mt-1 ${
+                bankroll.bankrollPct < 50 ? "text-bad" : "text-ink-dim"
+              }`}
+            >
+              {bankroll.bankrollPct.toFixed(1)}% of baseline
+            </div>
+          </div>
+          <div className="panel p-4">
+            <div className="kpi-label mb-1">Baseline Bankroll</div>
+            <div className="kpi-value font-mono text-accent">
+              {fmtMoney(bankroll.baselineBankroll)}
+            </div>
+            <div className="text-xs text-ink-dim mt-1">
+              ${bankroll.currentUnitSize} × {BANKROLL_UNITS}
+              {currentLevel != null ? ` · Level ${currentLevel}` : ""}
+            </div>
+          </div>
+          <div className="panel p-4">
+            <div className="kpi-label mb-1">In-Level Profit</div>
+            <div className={`kpi-value font-mono ${pctClass(bankroll.inLevelProfit)}`}>
+              {fmtMoney(bankroll.inLevelProfit, { sign: true })}
+            </div>
+            <div className="text-xs text-ink-dim mt-1">
+              Since {bankroll.levelStartDate ?? "—"}
+            </div>
+          </div>
+          <div className="panel p-4">
+            <div className="kpi-label mb-1">Bankroll %</div>
+            <div
+              className={`kpi-value font-mono ${
+                bankroll.bankrollPct < 50 ? "text-bad" : "text-good"
+              }`}
+            >
+              {bankroll.bankrollPct.toFixed(1)}%
+            </div>
+            <div className="text-xs text-ink-dim mt-1">vs level baseline</div>
+          </div>
+        </div>
+      </section>
 
       {/* timeframe nav — Day / Week / Month / Year / All + custom-range popover.
           Sits above the Current Streak / Scale Up / Level cards and acts as the

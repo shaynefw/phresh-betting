@@ -92,7 +92,7 @@ async function deleteScaling(formData: FormData) {
 
 /**
  * Rebuild derived columns on every row in the active system. Today this
- * just normalizes bankroll = unit × 50 — the rest of the derived
+ * just normalizes bankroll = unit × 100 — the rest of the derived
  * columns (level, direction, sequenceOfDays, avgRisked, totalRisked)
  * are computed at render time so they're always live.
  */
@@ -220,7 +220,7 @@ export default async function ScalingPage() {
       <div className="flex flex-wrap items-center gap-2">
         <form action={rebuildScalingHistory}>
           <input type="hidden" name="system_id" value={sysId} />
-          <button className="btn-ghost text-xs" title="Re-normalize bankroll = unit × 50 on every row">
+          <button className="btn-ghost text-xs" title="Re-normalize bankroll = unit × 100 on every row">
             Recalculate history
           </button>
         </form>

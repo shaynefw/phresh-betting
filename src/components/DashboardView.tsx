@@ -320,7 +320,10 @@ export default async function DashboardView({
    * the level's effective date).
    * --------------------------------------------------------------- */
   const currentScaleRow = activeScalingRow(scalingRows, todayISO());
-  const bankroll = computeBankrollState(currentScaleRow, journalRows);
+  const bankroll = computeBankrollState(
+    currentScaleRow,
+    journalSummary.cumulativeUnits,
+  );
   const enrichedScaling = enrichScalingRows(scalingRows, journalRows, todayISO());
   const currentLevel =
     enrichedScaling.find((e) => e.row.id === currentScaleRow?.id)?.level ?? null;
@@ -541,7 +544,7 @@ export default async function DashboardView({
             </span>
           )}
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           <div className="panel p-4">
             <div className="kpi-label mb-1">Current Bankroll</div>
             <div className="kpi-value font-mono text-ink">
@@ -566,15 +569,6 @@ export default async function DashboardView({
             </div>
           </div>
           <div className="panel p-4">
-            <div className="kpi-label mb-1">In-Level Profit</div>
-            <div className={`kpi-value font-mono ${pctClass(bankroll.inLevelProfit)}`}>
-              {fmtMoney(bankroll.inLevelProfit, { sign: true })}
-            </div>
-            <div className="text-xs text-ink-dim mt-1">
-              Since {bankroll.levelStartDate ?? "—"}
-            </div>
-          </div>
-          <div className="panel p-4">
             <div className="kpi-label mb-1">Bankroll %</div>
             <div
               className={`kpi-value font-mono ${
@@ -584,6 +578,35 @@ export default async function DashboardView({
               {bankroll.bankrollPct.toFixed(1)}%
             </div>
             <div className="text-xs text-ink-dim mt-1">vs level baseline</div>
+          </div>
+          <div className="panel p-4">
+            <div className="kpi-label mb-1">Current Units</div>
+            <div className={`kpi-value font-mono ${pctClass(bankroll.currentUnits)}`}>
+              {fmtUnits(bankroll.currentUnits)}
+            </div>
+            <div className="text-xs text-ink-dim mt-1">
+              Baseline: {fmtUnits(bankroll.baselineUnits)}
+            </div>
+          </div>
+          <div className="panel p-4">
+            <div className="kpi-label mb-1">Units vs Baseline</div>
+            <div
+              className={`kpi-value font-mono ${pctClass(bankroll.unitsAboveBaseline)}`}
+            >
+              {fmtUnits(bankroll.unitsAboveBaseline)}
+            </div>
+            <div className="text-xs text-ink-dim mt-1">
+              {bankroll.unitsAboveBaseline >= 0 ? "above" : "below"} baseline
+            </div>
+          </div>
+          <div className="panel p-4">
+            <div className="kpi-label mb-1">In-Level Profit</div>
+            <div className={`kpi-value font-mono ${pctClass(bankroll.inLevelProfit)}`}>
+              {fmtMoney(bankroll.inLevelProfit, { sign: true })}
+            </div>
+            <div className="text-xs text-ink-dim mt-1">
+              vs {fmtUnits(bankroll.baselineUnits)} baseline
+            </div>
           </div>
         </div>
       </section>

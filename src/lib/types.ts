@@ -47,6 +47,14 @@ export interface ScalingLogEntry {
   ending_units_threshold: number | null;
   unit_size_dollars: number;
   bankroll: number | null;
+  /**
+   * Baseline cumulative-units mark for this level — the position
+   * considered even for the level's baseline bankroll. Current
+   * bankroll = baseline bankroll + (current cumulative units −
+   * baseline_units) × unit size. Falls back to
+   * starting_units_threshold when null.
+   */
+  baseline_units: number | null;
   notes: string | null;
   created_at: string;
 }

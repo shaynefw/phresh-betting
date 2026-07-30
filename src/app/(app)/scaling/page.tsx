@@ -39,6 +39,8 @@ async function addScaling(formData: FormData) {
   const ending_units_threshold = Number(
     formData.get("ending_units_threshold") || 25,
   );
+  const baselineRaw = String(formData.get("baseline_units") ?? "").trim();
+  const baseline_units = baselineRaw === "" ? null : Number(baselineRaw);
   if (!sysId || !effective_date || !unit_size_dollars) return;
 
   const supabase = createAdminClient();
@@ -48,6 +50,7 @@ async function addScaling(formData: FormData) {
     unit_size_dollars,
     starting_units_threshold,
     ending_units_threshold,
+    baseline_units,
     bankroll: bankrollForUnit(unit_size_dollars),
     notes: null,
   });
@@ -66,6 +69,8 @@ async function updateScaling(formData: FormData) {
   const ending_units_threshold = Number(
     formData.get("ending_units_threshold") || 25,
   );
+  const baselineRaw = String(formData.get("baseline_units") ?? "").trim();
+  const baseline_units = baselineRaw === "" ? null : Number(baselineRaw);
   if (!id || !effective_date || !unit_size_dollars) return;
 
   await createAdminClient()
@@ -75,6 +80,7 @@ async function updateScaling(formData: FormData) {
       unit_size_dollars,
       starting_units_threshold,
       ending_units_threshold,
+      baseline_units,
       bankroll: bankrollForUnit(unit_size_dollars),
     })
     .eq("id", id);
@@ -212,6 +218,19 @@ export default async function ScalingPage() {
           />
         </div>
         <div>
+          <label className="label">Baseline units</label>
+          <input
+            name="baseline_units"
+            type="number"
+            step="0.01"
+            placeholder="band start"
+            className="input"
+          />
+          <div className="text-[11px] text-ink-dim mt-1">
+            Bankroll-even mark for this level.
+          </div>
+        </div>
+        <div>
           <button className="btn-primary w-full">Add scaling entry</button>
         </div>
       </form>
@@ -243,6 +262,7 @@ export default async function ScalingPage() {
                 <th className="text-right">Seq. of Days</th>
                 <th className="text-right">Unit Size</th>
                 <th className="text-right">Band</th>
+                <th className="text-right">Baseline u</th>
                 <th className="text-right">Bankroll</th>
                 <th className="text-right">Avg Risked</th>
                 <th className="text-right">Total Risked</th>
@@ -255,7 +275,7 @@ export default async function ScalingPage() {
               ))}
               {enriched.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="text-center text-ink-dim py-6">
+                  <td colSpan={11} className="text-center text-ink-dim py-6">
                     No scaling entries yet.
                   </td>
                 </tr>
@@ -293,6 +313,11 @@ function ScalingRow({ s }: { s: ScalingSequence }) {
           {Number(r.starting_units_threshold ?? 0)}u →{" "}
           {Number(r.ending_units_threshold ?? 0)}u
         </td>
+        <td className="text-right font-mono">
+          {r.baseline_units == null
+            ? `${Number(r.starting_units_threshold ?? 0)}u`
+            : `${fmtUnits(Number(r.baseline_units))}`}
+        </td>
         <td className="text-right font-mono">{fmtMoney(s.bankroll)}</td>
         <td className="text-right font-mono">
           {fmtMoney(s.avgRiskedAmount)}{" "}
@@ -318,7 +343,7 @@ function ScalingRow({ s }: { s: ScalingSequence }) {
         </td>
       </tr>
       <tr className="scaling-edit-row">
-        <td colSpan={10} className="p-0 border-t-0">
+        <td colSpan={11} className="p-0 border-t-0">
           <input
             id={`edit-${r.id}`}
             type="checkbox"
@@ -388,6 +413,17 @@ function EditForm({ s }: { s: ScalingSequence }) {
               className="input"
             />
           </div>
+        </div>
+        <div>
+          <label className="label">Baseline units</label>
+          <input
+            name="baseline_units"
+            type="number"
+            step="0.01"
+            defaultValue={r.baseline_units == null ? "" : Number(r.baseline_units)}
+            placeholder="band start"
+            className="input"
+          />
         </div>
         <button className="btn-primary w-full text-xs">Save</button>
       </form>

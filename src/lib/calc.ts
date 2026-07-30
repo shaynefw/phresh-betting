@@ -254,14 +254,23 @@ export function bankrollForUnit(unitSize: number): number {
 /**
  * Bankroll state for the CURRENTLY ACTIVE scale level.
  *
- *   baselineBankroll = active unit size × BANKROLL_UNITS (100)
- *   inLevelProfit    = sum of daily $ P&L on/after the active level's
- *                      effective_date (the profit earned while at this
- *                      unit size — tracked separately from baseline)
- *   currentBankroll  = baselineBankroll + inLevelProfit
- *   bankrollPct      = currentBankroll / baselineBankroll × 100
- *                      (100% = exactly at baseline; <100 below; >100
- *                      above because in-level profit was added)
+ * Cumulative units are the source of truth for position within the
+ * level:
+ *
+ *   baselineUnits      = the level's baseline units mark
+ *                        (scaling row's baseline_units, falling back
+ *                        to starting_units_threshold)
+ *   baselineBankroll   = active unit size × BANKROLL_UNITS (100)
+ *   unitsAboveBaseline = currentCumulativeUnits − baselineUnits
+ *   inLevelProfit      = unitsAboveBaseline × unit size
+ *                        (profit relative to the baseline only — can
+ *                        be negative when below baseline)
+ *   currentBankroll    = baselineBankroll + inLevelProfit
+ *   bankrollPct        = currentBankroll / baselineBankroll × 100
+ *
+ * Example: baselineUnits 35, unit $36, current units 40.56 →
+ *   above = 5.56, inLevelProfit = 5.56 × 36 = $200.16,
+ *   current = $3,600 + $200.16 = $3,800.16, pct = 105.6%.
  *
  * All figures reflect the active level only — independent of whatever
  * timeframe tab the dashboard is showing.
@@ -269,6 +278,9 @@ export function bankrollForUnit(unitSize: number): number {
 export interface BankrollState {
   levelStartDate: string | null;
   currentUnitSize: number;
+  baselineUnits: number;
+  currentUnits: number;
+  unitsAboveBaseline: number;
   baselineBankroll: number;
   inLevelProfit: number;
   currentBankroll: number;
@@ -277,18 +289,19 @@ export interface BankrollState {
 
 export function computeBankrollState(
   activeRow: ScalingLogEntry | null,
-  journalRows: Array<{ date: string; daily_amount_pnl: number | string }>,
+  currentCumulativeUnits: number,
 ): BankrollState {
   const currentUnitSize = Number(activeRow?.unit_size_dollars ?? 0);
   const baselineBankroll = bankrollForUnit(currentUnitSize);
   const levelStartDate = activeRow?.effective_date ?? null;
 
-  let inLevelProfit = 0;
-  for (const r of journalRows) {
-    if (levelStartDate && r.date < levelStartDate) continue;
-    inLevelProfit += Number(r.daily_amount_pnl) || 0;
-  }
-
+  // Baseline units: explicit per-level mark, else the band floor.
+  const baselineUnits = Number(
+    activeRow?.baseline_units ?? activeRow?.starting_units_threshold ?? 0,
+  );
+  const currentUnits = Number(currentCumulativeUnits) || 0;
+  const unitsAboveBaseline = currentUnits - baselineUnits;
+  const inLevelProfit = unitsAboveBaseline * currentUnitSize;
   const currentBankroll = baselineBankroll + inLevelProfit;
   const bankrollPct =
     baselineBankroll > 0 ? (currentBankroll / baselineBankroll) * 100 : 0;
@@ -296,6 +309,9 @@ export function computeBankrollState(
   return {
     levelStartDate,
     currentUnitSize,
+    baselineUnits,
+    currentUnits,
+    unitsAboveBaseline,
     baselineBankroll,
     inLevelProfit,
     currentBankroll,

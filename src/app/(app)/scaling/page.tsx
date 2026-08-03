@@ -9,9 +9,33 @@ import type {
 import {
   BANKROLL_UNITS,
   bankrollForUnit,
+  deriveBaselineUnits,
   enrichScalingRows,
   type ScalingSequence,
 } from "@/lib/calc";
+
+/**
+ * Resolve the level immediately BEFORE `beforeDate` for a system — the
+ * "current" level a new/edited scaling row is scaling away from. Used
+ * to auto-derive the new row's baseline units from the crossed band.
+ */
+async function previousScalingRow(
+  supabase: ReturnType<typeof createAdminClient>,
+  sysId: string,
+  beforeDate: string,
+  excludeId?: string,
+) {
+  let q = supabase
+    .from("scaling_log_entries")
+    .select("unit_size_dollars, starting_units_threshold, ending_units_threshold")
+    .eq("system_id", sysId)
+    .lt("effective_date", beforeDate)
+    .order("effective_date", { ascending: false })
+    .limit(1);
+  if (excludeId) q = q.neq("id", excludeId);
+  const { data } = await q;
+  return data?.[0] ?? null;
+}
 import { fmtMoney, fmtUnits, todayISO } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -40,10 +64,19 @@ async function addScaling(formData: FormData) {
     formData.get("ending_units_threshold") || 25,
   );
   const baselineRaw = String(formData.get("baseline_units") ?? "").trim();
-  const baseline_units = baselineRaw === "" ? null : Number(baselineRaw);
   if (!sysId || !effective_date || !unit_size_dollars) return;
 
   const supabase = createAdminClient();
+  // Blank baseline → auto-roll from the previous level's crossed band.
+  let baseline_units = baselineRaw === "" ? null : Number(baselineRaw);
+  if (baseline_units == null) {
+    const prev = await previousScalingRow(supabase, sysId, effective_date);
+    baseline_units = deriveBaselineUnits(
+      prev,
+      unit_size_dollars,
+      starting_units_threshold,
+    );
+  }
   await supabase.from("scaling_log_entries").insert({
     system_id: sysId,
     effective_date,
@@ -70,10 +103,23 @@ async function updateScaling(formData: FormData) {
     formData.get("ending_units_threshold") || 25,
   );
   const baselineRaw = String(formData.get("baseline_units") ?? "").trim();
-  const baseline_units = baselineRaw === "" ? null : Number(baselineRaw);
   if (!id || !effective_date || !unit_size_dollars) return;
 
-  await createAdminClient()
+  const supabase = createAdminClient();
+  // Blank baseline → auto-roll from the previous level's crossed band.
+  let baseline_units = baselineRaw === "" ? null : Number(baselineRaw);
+  if (baseline_units == null) {
+    const sysId = String(formData.get("system_id") ?? "");
+    const prev = sysId
+      ? await previousScalingRow(supabase, sysId, effective_date, id)
+      : null;
+    baseline_units = deriveBaselineUnits(
+      prev,
+      unit_size_dollars,
+      starting_units_threshold,
+    );
+  }
+  await supabase
     .from("scaling_log_entries")
     .update({
       effective_date,
@@ -223,11 +269,13 @@ export default async function ScalingPage() {
             name="baseline_units"
             type="number"
             step="0.01"
-            placeholder="band start"
+            placeholder="auto"
             className="input"
           />
           <div className="text-[11px] text-ink-dim mt-1">
-            Bankroll-even mark for this level.
+            Leave blank to auto-roll from the prior level&rsquo;s crossed
+            band (its scale-up band on a scale-up, scale-down band on a
+            scale-down).
           </div>
         </div>
         <div>
@@ -370,6 +418,7 @@ function EditForm({ s }: { s: ScalingSequence }) {
     <div className="space-y-3">
       <form action={updateScaling} className="space-y-2">
         <input type="hidden" name="id" value={r.id} />
+        <input type="hidden" name="system_id" value={r.system_id} />
         <div>
           <label className="label">Effective</label>
           <input

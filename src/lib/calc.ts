@@ -81,6 +81,38 @@ export function computeScalingState(
   };
 }
 
+/**
+ * Roll the baseline-units mark forward from the previous level's band
+ * when a new scaling level is created, so the baseline always matches
+ * the band boundary that was crossed to change levels — no manual
+ * entry needed.
+ *
+ *   scale UP   (new unit > prev unit) → prev level's scale-up trigger
+ *                                       (ending_units_threshold)
+ *   scale DOWN (new unit < prev unit) → prev level's scale-down trigger
+ *                                       (starting_units_threshold)
+ *   first row / same unit             → the new row's own band floor
+ *
+ * e.g. leaving a $36 level whose band ends at 70u and scaling up →
+ * the next level's baseline becomes 70u.
+ */
+export function deriveBaselineUnits(
+  prev: {
+    unit_size_dollars: number | string;
+    starting_units_threshold: number | string | null;
+    ending_units_threshold: number | string | null;
+  } | null,
+  newUnitSize: number,
+  newStartingThreshold: number | null | undefined,
+): number {
+  const fallback = Number(newStartingThreshold ?? 0);
+  if (!prev) return fallback;
+  const prevUnit = Number(prev.unit_size_dollars);
+  if (newUnitSize > prevUnit) return Number(prev.ending_units_threshold ?? 0);
+  if (newUnitSize < prevUnit) return Number(prev.starting_units_threshold ?? 0);
+  return fallback;
+}
+
 /** Picks the latest scaling row whose effective_date <= `on`. */
 export function activeScalingRow(
   rows: ScalingLogEntry[],

@@ -250,6 +250,16 @@ export default async function CapperDetail({
   // Compat alias used by the header pill
   const baselineUnits = trackedStartUnits;
 
+  // Bet-level days, newest first. The single most-recent one gets its
+  // editor surfaced ABOVE the metrics for fast daily entry; the rest
+  // stay in the history area below. dayRows is date-ascending, so
+  // reversing the bet-level subset puts the newest at index 0.
+  const betLevelDaysDesc = [...dayRows]
+    .filter((d) => d.entry_mode === "bet_level")
+    .reverse();
+  const newestBetLevelDay = betLevelDaysDesc[0] ?? null;
+  const olderBetLevelDays = betLevelDaysDesc.slice(1);
+
   const betsByDay = new Map<string, CapperBetEntry[]>();
   for (const b of betRows) {
     const arr = betsByDay.get(b.capper_day_entry_id) ?? [];
@@ -326,6 +336,27 @@ export default async function CapperDetail({
       {c.is_testing && (
         <TestingToggle capperId={c.id} systemId={sysId} isTesting={c.is_testing} />
       )}
+
+      {/* NEWEST ENTRY TEMPLATE — surfaced directly under the header,
+          above the metrics profile, so daily input is reachable without
+          scrolling past the growing metrics/history. DayEntryForm is the
+          add-a-new-date template (both modes); when the most recent day
+          is bet-level, its editor sits alongside so today's bets can be
+          logged immediately. Behavior is unchanged — same components. */}
+      <section className="grid lg:grid-cols-3 gap-4">
+        <DayEntryForm capperId={c.id} systemId={sysId} unitSize={unitSize} />
+        {newestBetLevelDay && (
+          <div className="lg:col-span-2">
+            <BetEntryEditor
+              day={newestBetLevelDay}
+              bets={betsByDay.get(newestBetLevelDay.id) ?? []}
+              capperId={c.id}
+              systemId={sysId}
+              noteSuggestions={noteSuggestions}
+            />
+          </div>
+        )}
+      </section>
 
       <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <Stat label="Cumulative Units" value={fmtUnits(cumUnits)} tone={cumUnits} />
@@ -420,10 +451,8 @@ export default async function CapperDetail({
         )}
       />
 
-      <section className="grid lg:grid-cols-3 gap-4">
-        <DayEntryForm capperId={c.id} systemId={sysId} unitSize={unitSize} />
-
-        <div className="panel p-4 lg:col-span-2">
+      <section>
+        <div className="panel p-4">
           <h3 className="kpi-label mb-3">Capper settings</h3>
           <form action={updateCapperMeta} className="grid md:grid-cols-3 gap-3">
             <input type="hidden" name="id" value={c.id} />
@@ -534,20 +563,19 @@ export default async function CapperDetail({
         </div>
       </section>
 
-      {/* per-day bet editor for bet-level days */}
-      {dayRows
-        .filter((d) => d.entry_mode === "bet_level")
-        .reverse()
-        .map((d) => (
-          <BetEntryEditor
-            key={d.id}
-            day={d}
-            bets={betsByDay.get(d.id) ?? []}
-            capperId={c.id}
-            systemId={sysId}
-            noteSuggestions={noteSuggestions}
-          />
-        ))}
+      {/* per-day bet editor for OLDER bet-level days — the most recent
+          one is surfaced above the metrics; these remain in the history
+          area below, newest-first. */}
+      {olderBetLevelDays.map((d) => (
+        <BetEntryEditor
+          key={d.id}
+          day={d}
+          bets={betsByDay.get(d.id) ?? []}
+          capperId={c.id}
+          systemId={sysId}
+          noteSuggestions={noteSuggestions}
+        />
+      ))}
     </div>
   );
 }

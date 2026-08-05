@@ -54,7 +54,10 @@ export default function BetEntryEditor({
   // -- Add-bet form state --
   const [wager, setWager] = useState("");
   const [odds, setOdds] = useState("");
-  const [result, setResult] = useState<Result>("win");
+  // New bet-level entries default to Pending — the result is filled in
+  // once the bet settles. This is a default-state only; it never
+  // touches saved rows or any calculation until the user saves.
+  const [result, setResult] = useState<Result>("pending");
   const [pnl, setPnl] = useState("");
   const [notes, setNotes] = useState("");
   // Sport defaults to null (no pre-selection) so the user actively picks one.
@@ -173,7 +176,7 @@ export default function BetEntryEditor({
       // Reset everything EXCEPT sport — most users log multiple bets in the
       // same sport on the same day, so keeping the last selection sticky
       // saves a click. (Reset notes / wager / odds / result / pnl as before.)
-      setWager(""); setOdds(""); setPnl(""); setNotes(""); setResult("win");
+      setWager(""); setOdds(""); setPnl(""); setNotes(""); setResult("pending");
       router.refresh();
     });
   }

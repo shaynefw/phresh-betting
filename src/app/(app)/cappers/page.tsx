@@ -56,7 +56,11 @@ async function updateChecklist(formData: FormData) {
   const id = String(formData.get("id"));
   const checklist = String(formData.get("checklist"));
   await createAdminClient().from("cappers").update({ checklist_status: checklist }).eq("id", id);
+  // checklist_status is the single shared source of truth for the
+  // Started/Completed widget on both the overview and the individual
+  // capper profile. Revalidate both so neither view drifts.
   revalidatePath("/cappers");
+  revalidatePath("/cappers/[id]", "page");
 }
 
 async function archiveCapper(formData: FormData) {

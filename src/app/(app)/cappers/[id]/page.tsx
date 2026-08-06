@@ -40,8 +40,27 @@ import DayEntryForm from "./DayEntryForm";
 import BetEntryEditor from "./BetEntryEditor";
 import BaselineForm from "./BaselineForm";
 import TestingToggle from "./TestingToggle";
+import AutoSubmitSelect from "@/components/AutoSubmitSelect";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Update the shared Started/Completed checklist state. `checklist_status`
+ * is one column on `cappers`, so this is the SAME state the Capper
+ * Performance Overview widget writes — the two controls can't drift.
+ * Revalidate both surfaces so whichever page renders next is current.
+ */
+async function updateChecklist(formData: FormData) {
+  "use server";
+  const id = String(formData.get("id"));
+  const checklist = String(formData.get("checklist"));
+  await createAdminClient()
+    .from("cappers")
+    .update({ checklist_status: checklist })
+    .eq("id", id);
+  revalidatePath(`/cappers/${id}`);
+  revalidatePath("/cappers");
+}
 
 async function deleteDay(formData: FormData) {
   "use server";
@@ -324,18 +343,43 @@ export default async function CapperDetail({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {!c.is_testing && (
-            <TestingToggle capperId={c.id} systemId={sysId} isTesting={c.is_testing} />
-          )}
           <BaselineForm capperId={c.id} systemId={sysId} baseline={baseline} />
           <Link href="/cappers" className="btn-ghost">All cappers</Link>
           <ExportButton targetId="capper-root" filename={`${c.name}.png`} />
         </div>
       </header>
 
-      {c.is_testing && (
-        <TestingToggle capperId={c.id} systemId={sysId} isTesting={c.is_testing} />
-      )}
+      {/* Checklist (Started/Completed) + Testing Phase. The checklist
+          widget is the SAME control as the Capper Performance Overview —
+          both write cappers.checklist_status, so the selection is one
+          shared state and never drifts. Widget sits on the left of the
+          Enter/Exit Testing Phase area. */}
+      <section className="flex flex-wrap items-center gap-3">
+        <form
+          action={updateChecklist}
+          className="flex items-center gap-2 shrink-0"
+        >
+          <input type="hidden" name="id" value={c.id} />
+          <span className="text-[10px] tracking-widest text-ink-dim uppercase">
+            Checklist
+          </span>
+          <AutoSubmitSelect
+            name="checklist"
+            defaultValue={c.checklist_status}
+            options={[
+              { value: "started", label: "Started" },
+              { value: "complete", label: "Complete" },
+            ]}
+          />
+        </form>
+        <div className="flex-1 min-w-0">
+          <TestingToggle
+            capperId={c.id}
+            systemId={sysId}
+            isTesting={c.is_testing}
+          />
+        </div>
+      </section>
 
       {/* NEWEST ENTRY TEMPLATE — surfaced directly under the header,
           above the metrics profile, so daily input is reachable without

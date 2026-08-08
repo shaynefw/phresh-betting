@@ -19,6 +19,10 @@ export default function StreakBreakdown({
   title,
   unitLabel = "days",
 }: Props) {
+  // Total streak occurrences shown for the active timeframe — the
+  // denominator for each card's frequency %. Recomputed from `entries`
+  // every render, so it tracks timeframe / filter changes automatically.
+  const total = entries.reduce((sum, e) => sum + e.count, 0);
   return (
     <div className="panel p-3 md:p-5 relative">
       <div className="flex items-center gap-2 mb-3">
@@ -41,7 +45,7 @@ export default function StreakBreakdown({
           }}
         >
           {entries.map((e) => (
-            <Card key={`${e.type}-${e.length}`} entry={e} />
+            <Card key={`${e.type}-${e.length}`} entry={e} total={total} />
           ))}
         </div>
       )}
@@ -49,8 +53,19 @@ export default function StreakBreakdown({
   );
 }
 
-function Card({ entry }: { entry: StreakBreakdownEntry }) {
+function Card({
+  entry,
+  total,
+}: {
+  entry: StreakBreakdownEntry;
+  total: number;
+}) {
   const isGreen = entry.type === "green";
+  // Frequency of this streak among all streaks shown for the active
+  // timeframe. When there's no valid total (0) we omit the % rather
+  // than print a misleading "NaN%"/"0%"; a listed streak with a real
+  // total but a 0 count still reads "0 (0%)".
+  const pct = total > 0 ? Math.round((entry.count / total) * 100) : null;
   return (
     <div
       className={`relative rounded-md border px-2 py-1.5 bg-bg-panel/60 ${
@@ -74,6 +89,9 @@ function Card({ entry }: { entry: StreakBreakdownEntry }) {
       </div>
       <div className="font-mono text-lg md:text-xl font-bold leading-tight mt-0.5 text-ink">
         {entry.count}
+        {pct !== null && (
+          <span className="text-ink-dim"> ({pct}%)</span>
+        )}
       </div>
       <div
         className={`absolute bottom-0 left-1.5 right-1.5 h-px ${
